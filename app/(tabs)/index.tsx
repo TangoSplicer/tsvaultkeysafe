@@ -1,278 +1,413 @@
-import { Image } from "expo-image";
-import { useRouter, Link } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet } from "react-native";
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  StyleSheet,
+  FlatList,
+  Pressable,
+  TextInput,
+  ActivityIndicator,
+  Alert,
+  Clipboard,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 
-import { HelloWave } from "@/components/hello-wave";
-import ParallaxScrollView from "@/components/parallax-scroll-view";
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-import { getLoginUrl } from "@/constants/oauth";
-import { useAuth } from "@/hooks/use-auth";
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { useThemeColor } from '@/hooks/use-theme-color';
+import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export default function HomeScreen() {
-  const { user, loading, isAuthenticated, logout } = useAuth();
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+import { Product, getAllProducts, searchProducts, deleteProduct } from '@/lib/database';
+import { getMasterKey, deriveKeys } from '@/lib/encryption';
+import { shouldVaultAutoLock } from '@/lib/vault-auth';
+
+export default function VaultScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
+  const colorScheme = useColorScheme();
+  const accentColor = useThemeColor({}, 'tint');
+  const textColor = useThemeColor({}, 'text');
+  const secondaryTextColor = useThemeColor({}, 'icon');
 
+  const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLocked, setIsLocked] = useState(false);
+  const [clipboardTimer, setClipboardTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load products on mount
   useEffect(() => {
-    console.log("[HomeScreen] Auth state:", {
-      hasUser: !!user,
-      loading,
-      isAuthenticated,
-      user: user ? { id: user.id, openId: user.openId, name: user.name, email: user.email } : null,
-    });
-  }, [user, loading, isAuthenticated]);
+    loadProducts();
+    const interval = setInterval(checkAutoLock, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const handleLogin = async () => {
+  // Filter products when search query changes
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredProducts(products);
+    } else {
+      filterProducts();
+    }
+  }, [searchQuery, products]);
+
+  const checkAutoLock = async () => {
+    const shouldLock = await shouldVaultAutoLock();
+      if (shouldLock && !isLocked) {
+        setIsLocked(true);
+        router.replace('/(tabs)' as any);
+      }
+  };
+
+  const loadProducts = async () => {
     try {
-      console.log("[Auth] Login button clicked");
-      setIsLoggingIn(true);
-      const loginUrl = getLoginUrl();
-      console.log("[Auth] Generated login URL:", loginUrl);
+      setIsLoading(true);
 
-      // On web, use direct redirect in same tab
-      // On mobile, use WebBrowser to open OAuth in a separate context
-      if (Platform.OS === "web") {
-        console.log("[Auth] Web platform: redirecting to OAuth in same tab...");
-        window.location.href = loginUrl;
+      // Check auto-lock
+      const shouldLock = await shouldVaultAutoLock();
+      if (shouldLock) {
+        setIsLocked(true);
+        router.replace('/(tabs)' as any);
         return;
       }
 
-      // Mobile: Open OAuth URL in browser
-      // The OAuth server will redirect to our deep link (manusapp://oauth/callback?code=...&state=...)
-      console.log("[Auth] Opening OAuth URL in browser...");
-      const result = await WebBrowser.openAuthSessionAsync(
-        loginUrl,
-        undefined, // Deep link is already configured in getLoginUrl, so no need to specify here
-        {
-          preferEphemeralSession: false,
-          showInRecents: true,
-        },
-      );
-
-      console.log("[Auth] WebBrowser result:", result);
-      if (result.type === "cancel") {
-        console.log("[Auth] OAuth cancelled by user");
-      } else if (result.type === "dismiss") {
-        console.log("[Auth] OAuth dismissed");
-      } else if (result.type === "success" && result.url) {
-        console.log("[Auth] OAuth session successful, navigating to callback:", result.url);
-        // Extract code and state from the URL
-        try {
-          // Parse the URL - it might be exp:// or a regular URL
-          let url: URL;
-          if (result.url.startsWith("exp://") || result.url.startsWith("exps://")) {
-            // For exp:// URLs, we need to parse them differently
-            // Format: exp://192.168.31.156:8081/--/oauth/callback?code=...&state=...
-            const urlStr = result.url.replace(/^exp(s)?:\/\//, "http://");
-            url = new URL(urlStr);
-          } else {
-            url = new URL(result.url);
-          }
-
-          const code = url.searchParams.get("code");
-          const state = url.searchParams.get("state");
-          const error = url.searchParams.get("error");
-
-          console.log("[Auth] Extracted params from callback URL:", {
-            code: code?.substring(0, 20) + "...",
-            state: state?.substring(0, 20) + "...",
-            error,
-          });
-
-          if (error) {
-            console.error("[Auth] OAuth error in callback:", error);
-            return;
-          }
-
-          if (code && state) {
-            // Navigate to callback route with params
-            console.log("[Auth] Navigating to callback route with params...");
-            router.push({
-              pathname: "/oauth/callback" as any,
-              params: { code, state },
-            });
-          } else {
-            console.error("[Auth] Missing code or state in callback URL");
-          }
-        } catch (err) {
-          console.error("[Auth] Failed to parse callback URL:", err, result.url);
-          // Fallback: try parsing with regex
-          const codeMatch = result.url.match(/[?&]code=([^&]+)/);
-          const stateMatch = result.url.match(/[?&]state=([^&]+)/);
-
-          if (codeMatch && stateMatch) {
-            const code = decodeURIComponent(codeMatch[1]);
-            const state = decodeURIComponent(stateMatch[1]);
-            console.log("[Auth] Fallback: extracted params via regex, navigating...");
-            router.push({
-              pathname: "/oauth/callback" as any,
-              params: { code, state },
-            });
-          } else {
-            console.error("[Auth] Could not extract code/state from URL");
-          }
-        }
+      const masterKey = await getMasterKey();
+      if (!masterKey) {
+        router.replace('/(tabs)' as any);
+        return;
       }
+
+      const keys = await deriveKeys(masterKey);
+      const allProducts = await getAllProducts(keys.databaseKey);
+      setProducts(allProducts);
+      setFilteredProducts(allProducts);
     } catch (error) {
-      console.error("[Auth] Login error:", error);
+      console.error('Failed to load products:', error);
+      Alert.alert('Error', 'Failed to load vault');
     } finally {
-      setIsLoggingIn(false);
+      setIsLoading(false);
     }
   };
 
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: "#A1CEDC", dark: "#1D3D47" }}
-      headerImage={
-        <Image
-          source={require("@/assets/images/partial-react-logo.png")}
-          style={styles.reactLogo}
-        />
-      }
-    >
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.authContainer}>
-        {loading ? (
-          <ActivityIndicator />
-        ) : isAuthenticated && user ? (
-          <ThemedView style={styles.userInfo}>
-            <ThemedText type="subtitle">Logged in as</ThemedText>
-            <ThemedText type="defaultSemiBold">{user.name || user.email || user.openId}</ThemedText>
-            <Pressable onPress={logout} style={styles.logoutButton}>
-              <ThemedText style={styles.logoutText}>Logout</ThemedText>
-            </Pressable>
-          </ThemedView>
-        ) : (
-          <Pressable
-            onPress={handleLogin}
-            disabled={isLoggingIn}
-            style={[styles.loginButton, isLoggingIn && styles.loginButtonDisabled]}
-          >
-            {isLoggingIn ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <ThemedText style={styles.loginText}>Login</ThemedText>
-            )}
-          </Pressable>
-        )}
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{" "}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: "cmd + d",
-              android: "cmd + m",
-              web: "F12",
-            })}
-          </ThemedText>{" "}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert("Action pressed")} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert("Share pressed")}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert("Delete pressed")}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const filterProducts = async () => {
+    try {
+      const masterKey = await getMasterKey();
+      if (!masterKey) return;
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
+      const keys = await deriveKeys(masterKey);
+      const results = await searchProducts(searchQuery, keys.databaseKey);
+      setFilteredProducts(results);
+    } catch (error) {
+      console.error('Search failed:', error);
+    }
+  };
+
+  const handleCopyLicenseKey = useCallback(
+    async (product: Product) => {
+      try {
+        await Clipboard.setString(product.licenseKey);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Clear clipboard after 30 seconds
+        if (clipboardTimer) clearTimeout(clipboardTimer);
+        const timer = setTimeout(() => {
+          Clipboard.setString('');
+        }, 30000);
+        setClipboardTimer(timer);
+
+        Alert.alert('Copied', 'License key copied to clipboard (auto-clear in 30s)');
+      } catch (error) {
+        console.error('Failed to copy:', error);
+      }
+    },
+    [clipboardTimer]
+  );
+
+  const handleDeleteProduct = useCallback(
+    (product: Product) => {
+      Alert.alert('Delete Product', `Are you sure you want to delete "${product.name}"?`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteProduct(product.id);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              await loadProducts();
+            } catch (error) {
+              console.error('Failed to delete product:', error);
+              Alert.alert('Error', 'Failed to delete product');
+            }
+          },
+        },
+      ]);
+    },
+    []
+  );
+
+  const getExpiryStatus = (product: Product) => {
+    if (!product.expiryDate && !product.renewalDate) {
+      return { label: 'No expiry', color: '#A0A0A0' };
+    }
+
+    const expiryDate = new Date(product.expiryDate || product.renewalDate!);
+    const now = new Date();
+    const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (daysUntilExpiry < 0) {
+      return { label: 'Expired', color: '#FF3B30' };
+    } else if (daysUntilExpiry < 30) {
+      return { label: `Expires in ${daysUntilExpiry}d`, color: '#FFB800' };
+    } else {
+      return { label: 'Active', color: '#00D084' };
+    }
+  };
+
+  const renderProductItem = ({ item }: { item: Product }) => {
+    const expiryStatus = getExpiryStatus(item);
+
+    return (
+      <Pressable
+        onPress={() => router.push('/(tabs)' as any)}
+        style={({ pressed }) => [
+          styles.productCard,
+          {
+            backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
+            opacity: pressed ? 0.7 : 1,
+          },
+        ]}
+      >
+        <View style={styles.productHeader}>
+          <View style={styles.productInfo}>
+            <ThemedText type="defaultSemiBold" numberOfLines={1}>
+              {item.name}
+            </ThemedText>
+            <ThemedText style={styles.vendor} numberOfLines={1}>
+              {item.vendor}
+            </ThemedText>
+          </View>
+          <View
+            style={[
+              styles.expiryBadge,
+              { backgroundColor: expiryStatus.color + '20', borderColor: expiryStatus.color },
+            ]}
+          >
+            <ThemedText style={[styles.expiryText, { color: expiryStatus.color }]}>
+              {expiryStatus.label}
+            </ThemedText>
+          </View>
+        </View>
+
+        <View style={styles.productActions}>
+          <Pressable
+            onPress={() => handleCopyLicenseKey(item)}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
+          >
+            <ThemedText style={[styles.actionButtonText, { color: accentColor }]}>
+              Copy Key
+            </ThemedText>
+          </Pressable>
+          <Pressable
+            onPress={() => handleDeleteProduct(item)}
+            style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
+          >
+            <ThemedText style={styles.deleteButtonText}>Delete</ThemedText>
+          </Pressable>
+        </View>
+      </Pressable>
+    );
+  };
+
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <ThemedText type="title" style={styles.emptyTitle}>
+        No Products
+      </ThemedText>
+      <ThemedText style={styles.emptyDescription}>
+        Tap the + button to add your first product
+      </ThemedText>
+    </View>
+  );
+
+  if (isLoading) {
+    return (
+      <ThemedView style={styles.container}>
+        <ActivityIndicator size="large" color={accentColor} />
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{" "}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{" "}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{" "}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
+    );
+  }
+
+  return (
+    <ThemedView
+      style={[
+        styles.container,
+        {
+          paddingTop: Math.max(insets.top, 20),
+          paddingBottom: Math.max(insets.bottom, 20),
+        },
+      ]}
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <ThemedText type="title">Vault</ThemedText>
+        <ThemedText style={styles.subtitle}>
+          {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''}
         </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      </View>
+
+      {/* Search Bar */}
+      <View
+        style={[
+          styles.searchContainer,
+          { backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#E0E0E0' },
+        ]}
+      >
+        <TextInput
+          style={[styles.searchInput, { color: textColor }]}
+          placeholder="Search products..."
+          placeholderTextColor={secondaryTextColor}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+      </View>
+
+      {/* Products List */}
+      {filteredProducts.length === 0 ? (
+        renderEmptyState()
+      ) : (
+        <FlatList
+          data={filteredProducts}
+          renderItem={renderProductItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          scrollEnabled={true}
+        />
+      )}
+
+      {/* FAB - Add Product */}
+      <Pressable
+        onPress={() => router.push('/(tabs)' as any)}
+        style={({ pressed }) => [
+          styles.fab,
+          { backgroundColor: accentColor, opacity: pressed ? 0.8 : 1 },
+        ]}
+      >
+        <ThemedText style={styles.fabText}>+</ThemedText>
+      </Pressable>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-  },
-  authContainer: {
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 8,
-    backgroundColor: "rgba(0, 0, 0, 0.05)",
-  },
-  userInfo: {
-    gap: 8,
-    alignItems: "center",
-  },
-  loginButton: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 44,
-  },
-  loginButtonDisabled: {
-    opacity: 0.6,
-  },
-  loginText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  logoutButton: {
-    marginTop: 8,
-    paddingVertical: 8,
+  container: {
+    flex: 1,
     paddingHorizontal: 16,
-    borderRadius: 6,
-    backgroundColor: "rgba(255, 59, 48, 0.1)",
   },
-  logoutText: {
-    color: "#FF3B30",
+  header: {
+    marginBottom: 16,
+  },
+  subtitle: {
     fontSize: 14,
-    fontWeight: "500",
+    marginTop: 4,
+  },
+  searchContainer: {
+    borderRadius: 8,
+    marginBottom: 16,
+    paddingHorizontal: 12,
+  },
+  searchInput: {
+    height: 44,
+    fontSize: 16,
+  },
+  listContent: {
+    paddingBottom: 100,
+  },
+  productCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  productHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  productInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  vendor: {
+    fontSize: 12,
+    marginTop: 4,
+    opacity: 0.7,
+  },
+  expiryBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  expiryText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  productActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(0, 208, 132, 0.1)',
+    alignItems: 'center',
+  },
+  actionButtonPressed: {
+    opacity: 0.7,
+  },
+  actionButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  deleteButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FF3B30',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  emptyDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    opacity: 0.7,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 80,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fabText: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
 });
