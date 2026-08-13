@@ -1,93 +1,131 @@
-name: CI
+name: Validate and Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  security-events: write
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+  EXPO_NO_TELEMETRY: 1
+  NODE_OPTIONS: --max-old-space-size=4096
 
 jobs:
   validate:
-    name: Lint, Typecheck, Test
+    name: Validate source
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Set up Node 24
+        uses: actions/setup-node@v5
         with:
-          node-version: 18
-          cache: npm
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Enable pnpm through Corepack
+        run: corepack enable
 
-      - name: ESLint
-        run: npm run lint
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: TypeScript typecheck
-        run: npm run typecheck
+      - name: Lint
+        run: pnpm run lint
 
-      - name: Unit tests with coverage
-        run: npm run test -- --coverage
+      - name: Type-check
+        run: pnpm run typecheck
 
-  build-android:
-    name: Build Android APK
+      - name: Run unit tests with coverage
+        run: pnpm exec jest --runInBand --coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build-android-apk:
+    name: Build Android debug APK
     needs: validate
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Set up Node 24
+        uses: actions/setup-node@v5
         with:
-          node-version: 18
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - name: Enable pnpm through Corepack
+        run: corepack enable
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: 17
+          java-version: "17"
+          cache: gradle
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Expo prebuild (Android)
-        run: npx expo prebuild --platform android --non-interactive
+      - name: Regenerate Android project from Expo config
+        run: pnpm exec expo prebuild --platform android --clean --no-install
 
-      - name: Build debug APK
+      - name: Build installable debug APK
+        working-directory: android
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Package APK and checksum
+        id: package_apk
+        shell: bash
         run: |
-          cd android
-          ./gradlew assembleDebug
+          apk_path="$(find android/app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
+          test -n "$apk_path"
+          mkdir -p dist
+          version="$(node -p "require('./package.json').version")"
+          apk_name="TSVaultKeySafe-${version}-${GITHUB_SHA::7}-debug.apk"
+          cp "$apk_path" "dist/$apk_name"
+          sha256sum "dist/$apk_name" | tee "dist/$apk_name.sha256"
+          echo "apk_name=$apk_name" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
+        id: upload_apk
         uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: TSVaultKeySafe-debug-apk-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
 
-  release:
-    name: Publish GitHub Release
-    needs: build-android
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Download APK
-        uses: actions/download-artifact@v4
-        with:
-          name: android-debug-apk
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ github.run_number }}
-          name: "Automated Build v${{ github.run_number }}"
-          files: app-debug.apk
+      - name: Publish build summary
+        shell: bash
+        run: |
+          {
+            echo '## Android APK build'
+            echo
+            echo "- APK: \`${{ steps.package_apk.outputs.apk_name }}\`"
+            echo "- Artifact: [Download APK](${{ steps.upload_apk.outputs.artifact-url }})"
+            echo '- Variant: `debug` (unsigned; intended for testing only)'
+            echo '- Integrity: the artifact includes a SHA-256 checksum file.'
+          } >> "$GITHUB_STEP_SUMMARY"

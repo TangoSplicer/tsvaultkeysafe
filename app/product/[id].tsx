@@ -13,7 +13,8 @@ const categories: ProductCategory[] = ['Software', 'Game', 'Subscription', 'Temp
 
 export default function ProductDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+  const productId = Array.isArray(id) ? id[0] : id;
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -21,8 +22,9 @@ export default function ProductDetailScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      if (!productId) throw new Error('Missing product identifier');
       const key = await requireVaultDatabaseKey();
-      const record = await getProduct(id, key);
+      const record = await getProduct(productId, key);
       if (!record) throw new Error('Product not found');
       setProduct(record);
     } catch {
@@ -31,7 +33,7 @@ export default function ProductDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, router]);
+  }, [productId, router]);
 
   useEffect(() => { void load(); }, [load]);
 

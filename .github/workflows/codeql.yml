@@ -2,20 +2,39 @@ name: CodeQL
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
+    branches: [main]
+  schedule:
+    - cron: "24 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   analyze:
+    name: Analyze JavaScript and TypeScript
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - uses: github/codeql-action/init@v3
+      - name: Initialize CodeQL v4
+        uses: github/codeql-action/init@v4
         with:
-          languages: javascript
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended,security-and-quality
 
-      - uses: github/codeql-action/analyze@v3
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"
