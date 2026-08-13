@@ -59,7 +59,7 @@ jobs:
           retention-days: 14
 
   build-android-apk:
-    name: Build Android debug APK
+    name: Build Android bundled release APK
     needs: validate
     runs-on: ubuntu-latest
 
@@ -100,6 +100,9 @@ jobs:
           apk_path="$(find android/app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
           test -n "$apk_path"
           unzip -l "$apk_path" | grep -q 'assets/index.android.bundle'
+          zipalign_bin="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -1)"
+          test -n "$zipalign_bin"
+          "$zipalign_bin" -c -P 16 -v 4 "$apk_path"
           mkdir -p dist
           version="$(node -p "require('./package.json').version")"
           apk_name="TSVaultKeySafe-${version}-${GITHUB_SHA::7}-bundled.apk"
@@ -126,5 +129,6 @@ jobs:
             echo "- APK: \`${{ steps.package_apk.outputs.apk_name }}\`"
             echo "- Artifact: [Download APK](${{ steps.upload_apk.outputs.artifact-url }})"
             echo '- Variant: `release` with the JavaScript bundle embedded; no Metro server is required.'
+            echo '- Compatibility: verified for 16 KB Android page-size packaging.'
             echo '- Integrity: the artifact includes a SHA-256 checksum file.'
           } >> "$GITHUB_STEP_SUMMARY"

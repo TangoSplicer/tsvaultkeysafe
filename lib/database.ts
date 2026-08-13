@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import * as SQLite from 'expo-sqlite/next';
+import * as SQLite from 'expo-sqlite';
 import {
   decryptData,
   deriveExportKey,
