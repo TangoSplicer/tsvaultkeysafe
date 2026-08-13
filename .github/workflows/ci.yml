@@ -76,18 +76,18 @@ jobs:
       - name: Enable pnpm through Corepack
         run: corepack enable
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Regenerate Android project from Expo config
         run: pnpm exec expo prebuild --platform android --clean --no-install
+
+      - name: Set up Java 17 and Gradle cache
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
 
       - name: Build installable debug APK
         working-directory: android
