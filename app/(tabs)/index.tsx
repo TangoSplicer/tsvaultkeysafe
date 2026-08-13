@@ -1,413 +1,104 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  StyleSheet,
-  FlatList,
-  Pressable,
-  TextInput,
-  ActivityIndicator,
-  Alert,
-  Clipboard,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, TextInput, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useThemeColor } from '@/hooks/use-theme-color';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-import { Product, getAllProducts, searchProducts, deleteProduct } from '@/lib/database';
-import { getMasterKey, deriveKeys } from '@/lib/encryption';
-import { shouldVaultAutoLock } from '@/lib/vault-auth';
+import { deleteProduct, getAllProducts, Product } from '@/lib/database';
+import { requireVaultDatabaseKey } from '@/lib/vault-service';
 
 export default function VaultScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const colorScheme = useColorScheme();
-  const accentColor = useThemeColor({}, 'tint');
-  const textColor = useThemeColor({}, 'text');
-  const secondaryTextColor = useThemeColor({}, 'icon');
-
   const [products, setProducts] = useState<Product[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLocked, setIsLocked] = useState(false);
-  const [clipboardTimer, setClipboardTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Load products on mount
-  useEffect(() => {
-    loadProducts();
-    const interval = setInterval(checkAutoLock, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Filter products when search query changes
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredProducts(products);
-    } else {
-      filterProducts();
-    }
-  }, [searchQuery, products]);
-
-  const checkAutoLock = async () => {
-    const shouldLock = await shouldVaultAutoLock();
-      if (shouldLock && !isLocked) {
-        setIsLocked(true);
-        router.replace('/(tabs)' as any);
-      }
-  };
-
-  const loadProducts = async () => {
+  const load = useCallback(async (isRefresh = false) => {
     try {
-      setIsLoading(true);
-
-      // Check auto-lock
-      const shouldLock = await shouldVaultAutoLock();
-      if (shouldLock) {
-        setIsLocked(true);
-        router.replace('/(tabs)' as any);
-        return;
-      }
-
-      const masterKey = await getMasterKey();
-      if (!masterKey) {
-        router.replace('/(tabs)' as any);
-        return;
-      }
-
-      const keys = await deriveKeys(masterKey);
-      const allProducts = await getAllProducts(keys.databaseKey);
-      setProducts(allProducts);
-      setFilteredProducts(allProducts);
-    } catch (error) {
-      console.error('Failed to load products:', error);
-      Alert.alert('Error', 'Failed to load vault');
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+      const key = await requireVaultDatabaseKey();
+      setProducts(await getAllProducts(key));
+    } catch {
+      router.replace('/unlock');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, [router]);
+
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return products;
+    return products.filter((product) => [product.name, product.vendor, product.licenseKey, product.category].some((value) => value.toLocaleLowerCase().includes(normalized)));
+  }, [products, query]);
+
+  const copyLicenseKey = async (product: Product) => {
+    await Clipboard.setStringAsync(product.licenseKey);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(async () => {
+      if ((await Clipboard.getStringAsync()) === product.licenseKey) await Clipboard.setStringAsync('');
+    }, 30_000);
+    Alert.alert('License key copied', 'For your privacy, it will clear from the clipboard after 30 seconds if the clipboard has not changed.');
   };
 
-  const filterProducts = async () => {
-    try {
-      const masterKey = await getMasterKey();
-      if (!masterKey) return;
-
-      const keys = await deriveKeys(masterKey);
-      const results = await searchProducts(searchQuery, keys.databaseKey);
-      setFilteredProducts(results);
-    } catch (error) {
-      console.error('Search failed:', error);
-    }
+  const removeProduct = (product: Product) => {
+    Alert.alert('Delete product', `Permanently delete “${product.name}”?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          await deleteProduct(product.id);
+          await load(true);
+        } catch { Alert.alert('Unable to delete', 'Unlock the vault again and retry.'); }
+      } },
+    ]);
   };
 
-  const handleCopyLicenseKey = useCallback(
-    async (product: Product) => {
-      try {
-        await Clipboard.setString(product.licenseKey);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-        // Clear clipboard after 30 seconds
-        if (clipboardTimer) clearTimeout(clipboardTimer);
-        const timer = setTimeout(() => {
-          Clipboard.setString('');
-        }, 30000);
-        setClipboardTimer(timer);
-
-        Alert.alert('Copied', 'License key copied to clipboard (auto-clear in 30s)');
-      } catch (error) {
-        console.error('Failed to copy:', error);
-      }
-    },
-    [clipboardTimer]
-  );
-
-  const handleDeleteProduct = useCallback(
-    (product: Product) => {
-      Alert.alert('Delete Product', `Are you sure you want to delete "${product.name}"?`, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteProduct(product.id);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              await loadProducts();
-            } catch (error) {
-              console.error('Failed to delete product:', error);
-              Alert.alert('Error', 'Failed to delete product');
-            }
-          },
-        },
-      ]);
-    },
-    []
-  );
-
-  const getExpiryStatus = (product: Product) => {
-    if (!product.expiryDate && !product.renewalDate) {
-      return { label: 'No expiry', color: '#A0A0A0' };
-    }
-
-    const expiryDate = new Date(product.expiryDate || product.renewalDate!);
-    const now = new Date();
-    const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
-    if (daysUntilExpiry < 0) {
-      return { label: 'Expired', color: '#FF3B30' };
-    } else if (daysUntilExpiry < 30) {
-      return { label: `Expires in ${daysUntilExpiry}d`, color: '#FFB800' };
-    } else {
-      return { label: 'Active', color: '#00D084' };
-    }
-  };
-
-  const renderProductItem = ({ item }: { item: Product }) => {
-    const expiryStatus = getExpiryStatus(item);
-
-    return (
-      <Pressable
-        onPress={() => router.push('/(tabs)' as any)}
-        style={({ pressed }) => [
-          styles.productCard,
-          {
-            backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
-            opacity: pressed ? 0.7 : 1,
-          },
-        ]}
-      >
-        <View style={styles.productHeader}>
-          <View style={styles.productInfo}>
-            <ThemedText type="defaultSemiBold" numberOfLines={1}>
-              {item.name}
-            </ThemedText>
-            <ThemedText style={styles.vendor} numberOfLines={1}>
-              {item.vendor}
-            </ThemedText>
-          </View>
-          <View
-            style={[
-              styles.expiryBadge,
-              { backgroundColor: expiryStatus.color + '20', borderColor: expiryStatus.color },
-            ]}
-          >
-            <ThemedText style={[styles.expiryText, { color: expiryStatus.color }]}>
-              {expiryStatus.label}
-            </ThemedText>
-          </View>
-        </View>
-
-        <View style={styles.productActions}>
-          <Pressable
-            onPress={() => handleCopyLicenseKey(item)}
-            style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
-          >
-            <ThemedText style={[styles.actionButtonText, { color: accentColor }]}>
-              Copy Key
-            </ThemedText>
-          </Pressable>
-          <Pressable
-            onPress={() => handleDeleteProduct(item)}
-            style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
-          >
-            <ThemedText style={styles.deleteButtonText}>Delete</ThemedText>
-          </Pressable>
-        </View>
-      </Pressable>
-    );
-  };
-
-  const renderEmptyState = () => (
-    <View style={styles.emptyContainer}>
-      <ThemedText type="title" style={styles.emptyTitle}>
-        No Products
-      </ThemedText>
-      <ThemedText style={styles.emptyDescription}>
-        Tap the + button to add your first product
-      </ThemedText>
-    </View>
-  );
-
-  if (isLoading) {
-    return (
-      <ThemedView style={styles.container}>
-        <ActivityIndicator size="large" color={accentColor} />
-      </ThemedView>
-    );
-  }
+  if (loading) return <ThemedView style={styles.center}><ActivityIndicator size="large" color="#14B8A6" /></ThemedView>;
 
   return (
-    <ThemedView
-      style={[
-        styles.container,
-        {
-          paddingTop: Math.max(insets.top, 20),
-          paddingBottom: Math.max(insets.bottom, 20),
-        },
-      ]}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <ThemedText type="title">Vault</ThemedText>
-        <ThemedText style={styles.subtitle}>
-          {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''}
-        </ThemedText>
-      </View>
-
-      {/* Search Bar */}
-      <View
-        style={[
-          styles.searchContainer,
-          { backgroundColor: colorScheme === 'dark' ? '#2A2A2A' : '#E0E0E0' },
-        ]}
-      >
-        <TextInput
-          style={[styles.searchInput, { color: textColor }]}
-          placeholder="Search products..."
-          placeholderTextColor={secondaryTextColor}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
-
-      {/* Products List */}
-      {filteredProducts.length === 0 ? (
-        renderEmptyState()
-      ) : (
-        <FlatList
-          data={filteredProducts}
-          renderItem={renderProductItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          scrollEnabled={true}
-        />
-      )}
-
-      {/* FAB - Add Product */}
-      <Pressable
-        onPress={() => router.push('/(tabs)' as any)}
-        style={({ pressed }) => [
-          styles.fab,
-          { backgroundColor: accentColor, opacity: pressed ? 0.8 : 1 },
-        ]}
-      >
-        <ThemedText style={styles.fabText}>+</ThemedText>
-      </Pressable>
+    <ThemedView style={[styles.container, { paddingTop: Math.max(insets.top, 18) }]}>
+      <View style={styles.header}><View><ThemedText type="title" style={styles.title}>Your vault</ThemedText><ThemedText style={styles.subtitle}>{products.filter((product) => !product.isArchived).length} active records · encrypted on device</ThemedText></View><Pressable onPress={() => router.push('/add-product')} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Add product"><ThemedText style={styles.addText}>Add</ThemedText></Pressable></View>
+      <View style={styles.search}><TextInput value={query} onChangeText={setQuery} placeholder="Search products, vendors, or keys" placeholderTextColor="#64748B" style={styles.searchInput} autoCorrect={false} accessibilityLabel="Search vault" /></View>
+      <FlatList
+        data={filtered}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => <ProductCard product={item} onOpen={() => router.push({ pathname: '/product/[id]', params: { id: item.id } })} onCopy={() => void copyLicenseKey(item)} onDelete={() => removeProduct(item)} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor="#14B8A6" />}
+        ListEmptyComponent={<EmptyState hasQuery={Boolean(query)} onAdd={() => router.push('/add-product')} />}
+        contentContainerStyle={filtered.length === 0 ? styles.emptyList : styles.list}
+        showsVerticalScrollIndicator={false}
+      />
     </ThemedView>
   );
 }
 
+function ProductCard({ product, onOpen, onCopy, onDelete }: { product: Product; onOpen: () => void; onCopy: () => void; onDelete: () => void }) {
+  const status = expiryStatus(product);
+  return <Pressable onPress={onOpen} style={({ pressed }) => [styles.card, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel={`Open ${product.name}`}><View style={styles.cardTop}><View style={styles.cardTitle}><ThemedText type="defaultSemiBold" numberOfLines={1}>{product.name}</ThemedText><ThemedText style={styles.vendor} numberOfLines={1}>{product.vendor} · {product.category}</ThemedText></View><View style={[styles.badge, { backgroundColor: status.color + '1A' }]}><ThemedText style={[styles.badgeText, { color: status.color }]}>{status.label}</ThemedText></View></View><View style={styles.actions}><Pressable onPress={onCopy} style={styles.secondaryAction}><ThemedText style={styles.secondaryActionText}>Copy key</ThemedText></Pressable><Pressable onPress={onDelete} style={styles.deleteAction}><ThemedText style={styles.deleteActionText}>Delete</ThemedText></Pressable></View></Pressable>;
+}
+
+function EmptyState({ hasQuery, onAdd }: { hasQuery: boolean; onAdd: () => void }) {
+  return <View style={styles.empty}><View style={styles.emptyMark}><View style={styles.emptyShackle} /><View style={styles.emptyBody} /></View><ThemedText type="subtitle" style={styles.emptyTitle}>{hasQuery ? 'No matching records' : 'Your vault is ready'}</ThemedText><ThemedText style={styles.emptyText}>{hasQuery ? 'Try a different search term.' : 'Add your first product or license to begin building your private inventory.'}</ThemedText>{!hasQuery && <Pressable onPress={onAdd} style={styles.emptyButton}><ThemedText style={styles.emptyButtonText}>Add your first product</ThemedText></Pressable>}</View>;
+}
+
+function expiryStatus(product: Product): { label: string; color: string } {
+  if (product.isArchived) return { label: 'Archived', color: '#64748B' };
+  const candidate = product.expiryDate ?? product.renewalDate;
+  if (!candidate) return { label: 'No renewal', color: '#64748B' };
+  const days = Math.ceil((new Date(`${candidate}T00:00:00`).getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return { label: 'Expired', color: '#DC2626' };
+  if (days <= 30) return { label: `${days}d remaining`, color: '#D97706' };
+  return { label: 'Active', color: '#0F766E' };
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  header: {
-    marginBottom: 16,
-  },
-  subtitle: {
-    fontSize: 14,
-    marginTop: 4,
-  },
-  searchContainer: {
-    borderRadius: 8,
-    marginBottom: 16,
-    paddingHorizontal: 12,
-  },
-  searchInput: {
-    height: 44,
-    fontSize: 16,
-  },
-  listContent: {
-    paddingBottom: 100,
-  },
-  productCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  productHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  productInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  vendor: {
-    fontSize: 12,
-    marginTop: 4,
-    opacity: 0.7,
-  },
-  expiryBadge: {
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-  },
-  expiryText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  productActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0, 208, 132, 0.1)',
-    alignItems: 'center',
-  },
-  actionButtonPressed: {
-    opacity: 0.7,
-  },
-  actionButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  deleteButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FF3B30',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  emptyDescription: {
-    fontSize: 14,
-    textAlign: 'center',
-    opacity: 0.7,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 80,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fabText: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
+  container: { flex: 1, paddingHorizontal: 18 }, center: { flex: 1, alignItems: 'center', justifyContent: 'center' }, header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }, title: { fontSize: 30 }, subtitle: { marginTop: 4, fontSize: 13, opacity: 0.65 }, addButton: { backgroundColor: '#0F766E', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 }, addText: { color: '#FFFFFF', fontWeight: '800' }, search: { height: 52, justifyContent: 'center', borderRadius: 14, backgroundColor: '#E2E8F0', paddingHorizontal: 14, marginBottom: 16 }, searchInput: { fontSize: 16, color: '#0F172A' }, list: { paddingBottom: 102 }, emptyList: { flexGrow: 1, paddingBottom: 96 }, card: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, padding: 16, marginBottom: 12, backgroundColor: '#FFFFFF', shadowColor: '#0F172A', shadowOpacity: 0.04, shadowRadius: 8, elevation: 1 }, cardTop: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' }, cardTitle: { flex: 1 }, vendor: { fontSize: 13, opacity: 0.63, marginTop: 4 }, badge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 }, badgeText: { fontSize: 11, fontWeight: '800' }, actions: { flexDirection: 'row', gap: 10, marginTop: 16 }, secondaryAction: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: '#CCFBF1' }, secondaryActionText: { color: '#0F766E', fontWeight: '800', fontSize: 13 }, deleteAction: { paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#FEF2F2' }, deleteActionText: { color: '#DC2626', fontWeight: '800', fontSize: 13 }, empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 30 }, emptyMark: { width: 58, height: 61, marginBottom: 20 }, emptyShackle: { position: 'absolute', top: 0, left: 14, width: 30, height: 28, borderWidth: 5, borderColor: '#14B8A6', borderBottomWidth: 0, borderTopLeftRadius: 18, borderTopRightRadius: 18 }, emptyBody: { position: 'absolute', bottom: 0, left: 4, width: 50, height: 38, borderRadius: 11, backgroundColor: '#0F172A' }, emptyTitle: { textAlign: 'center' }, emptyText: { textAlign: 'center', marginTop: 10, opacity: 0.66, lineHeight: 20 }, emptyButton: { marginTop: 22, backgroundColor: '#0F766E', paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12 }, emptyButtonText: { color: '#FFFFFF', fontWeight: '800' }, pressed: { opacity: 0.68 },
 });

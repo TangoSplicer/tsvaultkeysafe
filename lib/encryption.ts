@@ -1,20 +1,25 @@
 import * as Crypto from 'expo-crypto';
-import CryptoJS from 'crypto-js';
 import * as SecureStore from 'expo-secure-store';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha';
+import { bytesToHex, equalBytes, hexToBytes, utf8ToBytes } from '@noble/ciphers/utils';
+import { hkdf } from '@noble/hashes/hkdf';
+import { pbkdf2Async } from '@noble/hashes/pbkdf2';
+import { sha256 } from '@noble/hashes/sha256';
 
-/**
- * Encryption Service
- * Handles AES-256-GCM encryption, key derivation, and secure key storage
- */
-
-const MASTER_KEY_STORAGE_KEY = 'tsvault_master_key';
-const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const MASTER_KEY_STORAGE_KEY = 'tsvault.master-key.v2';
+const KEYCHAIN_SERVICE = 'com.tsvaultkeysafe.vault';
+const KEY_DERIVATION_SALT = utf8ToBytes('TSVaultKeySafe/v2/key-separation');
+const PIN_ITERATIONS = 600_000;
+const PIN_SALT_BYTES = 32;
+const DATA_KEY_BYTES = 32;
+const NONCE_BYTES = 24;
+const TAG_BYTES = 16;
 
 export interface EncryptedData {
   ciphertext: string;
   nonce: string;
   tag: string;
-  salt?: string;
+  version: 2;
 }
 
 export interface EncryptionKeys {
@@ -23,253 +28,180 @@ export interface EncryptionKeys {
   attachmentKey: string;
 }
 
-/**
- * Generate a random master key (256-bit)
- */
-export async function generateMasterKey(): Promise<string> {
-  const randomBytes = await Crypto.getRandomBytes(32);
-  return Buffer.from(randomBytes).toString('hex');
+function secureStoreOptions(): SecureStore.SecureStoreOptions {
+  return {
+    keychainService: KEYCHAIN_SERVICE,
+    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  };
 }
 
-/**
- * Store master key in secure storage
- */
+function normalizeKey(key: string): Uint8Array {
+  const keyBytes = hexToBytes(key);
+  if (keyBytes.length !== DATA_KEY_BYTES) {
+    throw new Error('Invalid encryption key');
+  }
+  return keyBytes;
+}
+
+function encodeAdditionalData(additionalData?: string): Uint8Array | undefined {
+  return additionalData ? utf8ToBytes(additionalData) : undefined;
+}
+
+/** Generates a CSPRNG-backed, 256-bit vault master key. */
+export function generateMasterKey(): string {
+  return bytesToHex(Crypto.getRandomBytes(DATA_KEY_BYTES));
+}
+
+/** Stores the key so it is only available while the device is unlocked and never migrates. */
 export async function storeMasterKey(masterKey: string): Promise<void> {
-  try {
-    await SecureStore.setItemAsync(MASTER_KEY_STORAGE_KEY, masterKey);
-  } catch (error) {
-    console.error('Failed to store master key:', error);
-    throw new Error('Failed to store encryption key securely');
-  }
+  normalizeKey(masterKey);
+  await SecureStore.setItemAsync(MASTER_KEY_STORAGE_KEY, masterKey, secureStoreOptions());
 }
 
-/**
- * Retrieve master key from secure storage
- */
 export async function getMasterKey(): Promise<string | null> {
-  try {
-    const masterKey = await SecureStore.getItemAsync(MASTER_KEY_STORAGE_KEY);
-    return masterKey || null;
-  } catch (error) {
-    console.error('Failed to retrieve master key:', error);
-    return null;
-  }
+  const masterKey = await SecureStore.getItemAsync(MASTER_KEY_STORAGE_KEY, secureStoreOptions());
+  if (!masterKey) return null;
+  normalizeKey(masterKey);
+  return masterKey;
 }
 
-/**
- * Derive database and attachment keys from master key using HKDF
- */
+/** Derives purpose-separated data keys with HKDF-SHA-256. */
 export async function deriveKeys(masterKey: string): Promise<EncryptionKeys> {
-  // Use CryptoJS for HKDF-like derivation (simplified)
-  // In production, use a proper HKDF library
-  
-  const databaseKeyHmac = CryptoJS.HmacSHA256(
-    'TSVaultKeySafe:Database',
-    masterKey
+  const masterKeyBytes = normalizeKey(masterKey);
+  const databaseKey = hkdf(
+    sha256,
+    masterKeyBytes,
+    KEY_DERIVATION_SALT,
+    utf8ToBytes('database-encryption'),
+    DATA_KEY_BYTES,
   );
-  const databaseKey = databaseKeyHmac.toString();
-
-  const attachmentKeyHmac = CryptoJS.HmacSHA256(
-    'TSVaultKeySafe:Attachments',
-    masterKey
+  const attachmentKey = hkdf(
+    sha256,
+    masterKeyBytes,
+    KEY_DERIVATION_SALT,
+    utf8ToBytes('attachment-encryption'),
+    DATA_KEY_BYTES,
   );
-  const attachmentKey = attachmentKeyHmac.toString();
 
   return {
     masterKey,
-    databaseKey,
-    attachmentKey,
+    databaseKey: bytesToHex(databaseKey),
+    attachmentKey: bytesToHex(attachmentKey),
   };
 }
 
 /**
- * Encrypt data using AES-256-GCM
- * Note: CryptoJS doesn't natively support GCM mode, so we use a simplified approach
- * For production, consider using a library like tweetnacl-js or libsodium
+ * Encrypts one record using XChaCha20-Poly1305 AEAD. The record identifier is
+ * authenticated as associated data, preventing ciphertext substitution.
  */
 export async function encryptData(
   data: string,
   key: string,
-  additionalData?: string
+  additionalData?: string,
 ): Promise<EncryptedData> {
-  try {
-    // Generate random nonce (96-bit for GCM)
-    const nonceBytes = await Crypto.getRandomBytes(12);
-    const nonce = Buffer.from(nonceBytes).toString('hex');
+  const nonce = Crypto.getRandomBytes(NONCE_BYTES);
+  const cipher = xchacha20poly1305(normalizeKey(key), nonce, encodeAdditionalData(additionalData));
+  const sealed = cipher.encrypt(utf8ToBytes(data));
+  const ciphertext = sealed.slice(0, -TAG_BYTES);
+  const tag = sealed.slice(-TAG_BYTES);
 
-    // Encrypt using CryptoJS AES (ECB mode as fallback, should use GCM in production)
-    const encrypted = CryptoJS.AES.encrypt(data, key);
-    const ciphertext = encrypted.toString();
-
-    // Generate authentication tag (simplified, use proper GCM in production)
-    const tag = CryptoJS.HmacSHA256(
-      ciphertext + (additionalData || ''),
-      key
-    ).toString();
-
-    return {
-      ciphertext,
-      nonce,
-      tag,
-    };
-  } catch (error) {
-    console.error('Encryption failed:', error);
-    throw new Error('Failed to encrypt data');
-  }
+  return {
+    ciphertext: bytesToHex(ciphertext),
+    nonce: bytesToHex(nonce),
+    tag: bytesToHex(tag),
+    version: 2,
+  };
 }
 
-/**
- * Decrypt data using AES-256-GCM
- */
 export async function decryptData(
   encryptedData: EncryptedData,
   key: string,
-  additionalData?: string
+  additionalData?: string,
 ): Promise<string> {
+  if (encryptedData.version !== 2) {
+    throw new Error('Unsupported encrypted record version');
+  }
+
   try {
-    // Verify authentication tag
-    const expectedTag = CryptoJS.HmacSHA256(
-      encryptedData.ciphertext + (additionalData || ''),
-      key
-    ).toString();
-
-    if (expectedTag !== encryptedData.tag) {
-      throw new Error('Authentication tag verification failed - data may be tampered');
+    const nonce = hexToBytes(encryptedData.nonce);
+    const ciphertext = hexToBytes(encryptedData.ciphertext);
+    const tag = hexToBytes(encryptedData.tag);
+    if (nonce.length !== NONCE_BYTES || tag.length !== TAG_BYTES) {
+      throw new Error('Malformed encrypted record');
     }
 
-    // Decrypt
-    const decrypted = CryptoJS.AES.decrypt(encryptedData.ciphertext, key);
-    const plaintext = decrypted.toString(CryptoJS.enc.Utf8);
-
-    if (!plaintext) {
-      throw new Error('Decryption failed - invalid plaintext');
-    }
-
-    return plaintext;
-  } catch (error) {
-    console.error('Decryption failed:', error);
-    throw new Error('Failed to decrypt data');
+    const cipher = xchacha20poly1305(normalizeKey(key), nonce, encodeAdditionalData(additionalData));
+    return new TextDecoder().decode(cipher.decrypt(new Uint8Array([...ciphertext, ...tag])));
+  } catch {
+    // Do not disclose whether the key, tag, or ciphertext was invalid.
+    throw new Error('Unable to decrypt vault record');
   }
 }
 
-/**
- * Derive export key from passphrase using PBKDF2
- */
+/** Derives an export key with PBKDF2-HMAC-SHA-256 using the documented work factor. */
 export async function deriveExportKey(
   passphrase: string,
-  salt?: string
+  salt?: string,
 ): Promise<{ key: string; salt: string }> {
-  try {
-    // Generate salt if not provided
-    const finalSalt = salt || Buffer.from(await Crypto.getRandomBytes(32)).toString('hex');
-
-    // Derive key using PBKDF2 (100,000 iterations)
-    const derivedKey = CryptoJS.PBKDF2(passphrase, finalSalt, {
-      keySize: 256 / 32, // 8 words for 256 bits
-      iterations: 100000,
-      hasher: CryptoJS.algo.SHA256,
-    }).toString();
-
-    return {
-      key: derivedKey,
-      salt: finalSalt,
-    };
-  } catch (error) {
-    console.error('Key derivation failed:', error);
-    throw new Error('Failed to derive export key');
-  }
+  const saltBytes = salt ? hexToBytes(salt) : Crypto.getRandomBytes(PIN_SALT_BYTES);
+  const key = await pbkdf2Async(sha256, utf8ToBytes(passphrase), saltBytes, {
+    c: PIN_ITERATIONS,
+    dkLen: DATA_KEY_BYTES,
+  });
+  return { key: bytesToHex(key), salt: bytesToHex(saltBytes) };
 }
 
-/**
- * Clear sensitive data from memory
- */
-export function clearSensitiveData(data: any): void {
-  if (typeof data === 'string') {
-    // Overwrite string with random data (simplified)
-    const length = data.length;
-    // Overwrite with random data (platform-specific implementation)
-    // In practice, use native modules for secure memory clearing
-  }
-  // In production, use platform-native secure memory clearing
+/** Best-effort clearing for mutable buffers. JavaScript strings cannot be reliably zeroized. */
+export function clearSensitiveData(data: Uint8Array): void {
+  data.fill(0);
 }
 
-/**
- * Validate PIN (6-digit numeric)
- */
 export function validatePin(pin: string): boolean {
-  return /^\d{6}$/.test(pin);
+  return /^\d{8}$/.test(pin) && !/(\d)\1{7,}/.test(pin);
 }
 
-/**
- * Hash PIN for storage
- */
+/** Stores a versioned PBKDF2 verifier with a unique 256-bit salt. */
 export async function hashPin(pin: string): Promise<string> {
   if (!validatePin(pin)) {
-    throw new Error('Invalid PIN format');
+    throw new Error('PIN must contain exactly 8 digits and cannot use one repeated digit');
   }
-
-  // Use PBKDF2 for PIN hashing
-  const salt = await Crypto.getRandomBytes(16);
-  const saltHex = Buffer.from(salt).toString('hex');
-
-  const hash = CryptoJS.PBKDF2(pin, saltHex, {
-    keySize: 256 / 32,
-    iterations: 100000,
-    hasher: CryptoJS.algo.SHA256,
-  }).toString();
-
-  return `${saltHex}:${hash}`;
+  const salt = Crypto.getRandomBytes(PIN_SALT_BYTES);
+  const derived = await pbkdf2Async(sha256, utf8ToBytes(pin), salt, {
+    c: PIN_ITERATIONS,
+    dkLen: DATA_KEY_BYTES,
+  });
+  return `v2:${bytesToHex(salt)}:${bytesToHex(derived)}`;
 }
 
-/**
- * Verify PIN against hash
- */
-export async function verifyPin(pin: string, hash: string): Promise<boolean> {
+export async function verifyPin(pin: string, storedValue: string): Promise<boolean> {
+  if (!validatePin(pin)) return false;
+  const [version, saltHex, hashHex] = storedValue.split(':');
+  if (version !== 'v2' || !saltHex || !hashHex) return false;
+
   try {
-    const [saltHex, storedHash] = hash.split(':');
-
-    const derivedHash = CryptoJS.PBKDF2(pin, saltHex, {
-      keySize: 256 / 32,
-      iterations: 100000,
-      hasher: CryptoJS.algo.SHA256,
-    }).toString();
-
-    // Constant-time comparison (simplified)
-    return derivedHash === storedHash;
-  } catch (error) {
-    console.error('PIN verification failed:', error);
+    const expected = hexToBytes(hashHex);
+    const actual = await pbkdf2Async(sha256, utf8ToBytes(pin), hexToBytes(saltHex), {
+      c: PIN_ITERATIONS,
+      dkLen: expected.length,
+    });
+    return equalBytes(actual, expected);
+  } catch {
     return false;
   }
 }
 
-/**
- * Initialize encryption system
- */
 export async function initializeEncryption(): Promise<boolean> {
-  try {
-    let masterKey = await getMasterKey();
-
-    if (!masterKey) {
-      // Generate new master key on first launch
-      masterKey = await generateMasterKey();
-      await storeMasterKey(masterKey);
-    }
-
-    return true;
-  } catch (error) {
-    console.error('Encryption initialization failed:', error);
-    return false;
+  let masterKey = await getMasterKey();
+  if (!masterKey) {
+    masterKey = generateMasterKey();
+    await storeMasterKey(masterKey);
   }
+  return true;
 }
 
-/**
- * Wipe all encryption data (factory reset)
- */
 export async function wipeEncryptionData(): Promise<void> {
-  try {
-    await SecureStore.deleteItemAsync(MASTER_KEY_STORAGE_KEY);
-  } catch (error) {
-    console.error('Failed to wipe encryption data:', error);
-    throw new Error('Failed to wipe vault');
-  }
+  await SecureStore.deleteItemAsync(MASTER_KEY_STORAGE_KEY, secureStoreOptions());
 }
+
+export const CRYPTOGRAPHY_VERSION = 2;
+export const PIN_WORK_FACTOR = PIN_ITERATIONS;

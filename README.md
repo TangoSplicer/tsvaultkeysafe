@@ -1,338 +1,80 @@
 # TSVaultKeySafe
 
-> **A privacy-first, offline-only, end-to-end encrypted digital vault for securely storing product licenses, serial numbers, receipts, and warranty documents.**
+> **A private, offline-first mobile vault for product licenses, serial numbers, subscriptions, and related purchase information.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![React Native](https://img.shields.io/badge/React%20Native-0.81-blue.svg)](https://reactnative.dev)
-[![Expo](https://img.shields.io/badge/Expo-54-black.svg)](https://expo.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org)
-[![Security: AES-256-GCM](https://img.shields.io/badge/Security-AES--256--GCM-green.svg)](./ENCRYPTION_DESIGN.md)
+TSVaultKeySafe stores encrypted product records on the device. It does not require an account, cloud sync, analytics, or a network service in its vault workflow. The application is intentionally designed as a local inventory tool rather than a password manager or a cloud backup service.
 
----
+## Core capabilities
 
-## 🔒 Privacy First
+| Area | Included capability |
+| --- | --- |
+| Vault workflow | Create, search, edit, archive, copy, and delete encrypted product records. |
+| Access control | Required eight-digit PIN, optional device biometrics, progressive lockouts, and automatic background locking. |
+| Record protection | Versioned XChaCha20-Poly1305 authenticated encryption with a unique 192-bit nonce for every record. |
+| Key handling | A randomly generated 256-bit vault key in platform secure storage, with HKDF-SHA-256 purpose-separated database and attachment keys. |
+| Privacy controls | Screen-capture prevention while the vault is active and clipboard clearing when a copied license key remains unchanged for 30 seconds. |
+| Data portability | A passphrase-protected encrypted-export service is available in the data layer for a future file-picker interface. |
 
-TSVaultKeySafe is designed with privacy as the core principle:
+## Security model
 
-- **Zero Data Collection** — We don't collect any information about you
-- **Offline-Only** — Works completely without internet connection
-- **No Cloud Sync** — All data stays on your device
-- **No Accounts** — No email, no password, no registration
-- **No Tracking** — No analytics, no telemetry, no ads
-- **Open Source** — Audit the code, verify the security
+Each record is encrypted independently and authenticated with its record identifier as associated data. This detects ciphertext substitution as well as unauthorised modification. The implementation uses an audited XChaCha20-Poly1305 construction from `@noble/ciphers`; its extended nonce permits safe random nonce generation for the application’s local-record use case. [1]
 
----
+The PIN is stored only as a versioned PBKDF2-HMAC-SHA-256 verifier using a unique 256-bit salt and 600,000 iterations. This work factor follows OWASP’s published PBKDF2-HMAC-SHA-256 guidance. [2] The vault key and PIN verifier are stored through Expo SecureStore using device-only, unlocked-device accessibility. On Android this is backed by the Android Keystore; on iOS it uses Keychain Services. [3]
 
-## ✨ Features
+| Control | Implementation |
+| --- | --- |
+| PIN policy | Exactly eight numeric digits; a single repeated digit is rejected. |
+| Failed attempts | A five-attempt threshold, followed by progressive temporary lockouts from 30 seconds to 15 minutes. |
+| Biometrics | Optional biometric-only prompt with OS passcode fallback disabled. |
+| Session scope | Unlock state exists in memory only and is cleared when the app leaves the foreground. |
+| Screen privacy | Native screen-capture prevention while a vault session is open, subject to operating-system support. |
+| Destructive reset | The permanent-wipe action deletes records, access credentials, and the vault key. |
 
-### 🔐 Security
+> **Security boundary:** A mobile application cannot protect data from a compromised, rooted, jailbroken, or already-unlocked device. Users should maintain a device passcode and current operating-system updates. Screenshots and clipboard contents are also ultimately subject to operating-system capabilities and user-controlled software.
 
-- **Military-Grade Encryption** — AES-256-GCM encryption for all data at rest
-- **PIN Protection** — 6-digit numeric PIN with rate limiting (3 attempts → 30s lockout)
-- **Biometric Authentication** — Face ID / Fingerprint unlock with PIN fallback
-- **Auto-Lock** — Vault automatically locks when app goes to background
-- **Clipboard Auto-Clear** — Automatically clear copied keys after 30 seconds
-- **Screenshot Blocking** — Optional toggle to prevent screenshots
-- **Secure Deletion** — Cryptographic erasure of deleted items
+## Technology
 
-### 📦 Vault Management
+| Layer | Technology |
+| --- | --- |
+| Application | React Native, Expo, Expo Router, TypeScript |
+| Local database | Expo SQLite asynchronous API |
+| Authenticated encryption | XChaCha20-Poly1305 via `@noble/ciphers` |
+| Key derivation | HKDF-SHA-256 and PBKDF2-HMAC-SHA-256 |
+| Secure storage | Expo SecureStore, Android Keystore, iOS Keychain |
+| Platform controls | Expo Local Authentication, Screen Capture, Clipboard, and Haptics |
 
-- **Organize Products** — Store unlimited software licenses, game keys, subscriptions, receipts
-- **Quick Copy** — Copy license keys with one tap
-- **Search & Filter** — Fast local search across all products
-- **Expiry Tracking** — Visual badges show product status (Active, Expiring, Expired)
-- **Metadata** — Store name, vendor, license key, expiry date, notes, and more
-
-### 🎨 User Experience
-
-- **Dark Mode** — Full dark mode support with light mode fallback
-- **Responsive Design** — Works on all screen sizes
-- **Accessibility** — High contrast, large text, haptic feedback
-- **Offline Capable** — Works completely without internet
-- **Fast Performance** — Optimized for smooth 60 FPS animations
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- pnpm or npm
-- Expo CLI
-- iOS Simulator or Android Emulator (or physical device)
-
-### Installation
+## Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/tsvaultkeysafe/app.git
+git clone https://github.com/TangoSplicer/tsvaultkeysafe.git
 cd tsvaultkeysafe
-
-# Install dependencies
 pnpm install
-
-# Start development server
 pnpm start
 ```
 
-### Running on Device
+Use a development build or simulator for biometric and screen-capture controls. Expo Go does not provide the complete SecureStore biometric configuration required for a release build. [3]
 
 ```bash
-# iOS Simulator
-pnpm ios
+# Strict TypeScript validation
+./node_modules/.bin/tsc --noEmit
 
-# Android Emulator
-pnpm android
+# Crypto and PIN policy tests
+./node_modules/.bin/jest --runInBand
 
-# Web Browser
-pnpm web
+# Linting
+./node_modules/.bin/eslint .
 ```
 
----
+## Release notes
 
-## 📱 Screenshots
+This repository targets version **1.1.0**. Before publishing to an app store, create a native production build, validate the user flow on a physical iOS and Android device, complete export-compliance questions accurately, and rerun a dependency audit. The current Expo SDK 50 toolchain is behind the latest supported SDK; upgrade the Expo/React Native stack and revalidate native behavior before a public release.
 
-| Vault | Security | Settings | Unlock |
-|-------|----------|----------|--------|
-| Browse and search products | Manage encryption and biometric | App settings and legal info | PIN entry with biometric |
-| [Screenshot] | [Screenshot] | [Screenshot] | [Screenshot] |
+## References
 
----
+[1]: https://github.com/paulmillr/noble-ciphers "noble-ciphers documentation"
+[2]: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html "OWASP Password Storage Cheat Sheet"
+[3]: https://docs.expo.dev/versions/latest/sdk/securestore/ "Expo SecureStore documentation"
 
-## 🏗️ Architecture
+## License
 
-### Technology Stack
-
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Frontend** | React Native, Expo, TypeScript | Cross-platform mobile UI |
-| **Encryption** | AES-256-GCM, HKDF, PBKDF2 | Data protection at rest |
-| **Storage** | SQLite (encrypted), AsyncStorage | Local data persistence |
-| **Keystore** | Android Keystore, iOS Keychain | Secure key storage |
-| **Authentication** | PIN, Biometric | User authentication |
-
-### Data Flow
-
-```
-User Input (Product Data)
-    ↓
-Encryption (AES-256-GCM)
-    ↓
-Encrypted SQLite Database (on device)
-    ↓
-Platform Keystore (Master Key)
-```
-
----
-
-## 📚 Documentation
-
-- **[README_PROJECT.md](./README_PROJECT.md)** — Comprehensive project overview
-- **[THREAT_MODEL.md](./THREAT_MODEL.md)** — Security threat analysis (STRIDE)
-- **[ENCRYPTION_DESIGN.md](./ENCRYPTION_DESIGN.md)** — Cryptographic architecture
-- **[BUILD_INSTRUCTIONS.md](./BUILD_INSTRUCTIONS.md)** — Build and deployment guide
-- **[RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)** — Pre-release verification
-- **[STORE_LISTING.md](./STORE_LISTING.md)** — App store marketing copy
-- **[CONTRIBUTING.md](./CONTRIBUTING.md)** — Contribution guidelines
-- **[PRIVACY_POLICY.md](./PRIVACY_POLICY.md)** — Privacy policy
-- **[PROJECT_STRUCTURE.md](./PROJECT_STRUCTURE.md)** — File organization
-- **[CHANGELOG.md](./CHANGELOG.md)** — Version history
-- **[design.md](./design.md)** — UI/UX design specification
-
----
-
-## 🔐 Security
-
-### Encryption
-
-- **Algorithm:** AES-256-GCM (NIST-approved)
-- **Key Derivation:** HKDF-SHA256 for database keys
-- **PIN Hashing:** PBKDF2-SHA256 (100,000 iterations)
-- **Nonce:** 96-bit random per encryption operation
-- **Authentication Tag:** 128-bit for integrity verification
-
-### Key Management
-
-- **Master Key:** Stored in platform keystore (Android Keystore / iOS Keychain)
-- **Database Key:** Derived on-demand from master key
-- **Attachment Key:** Derived on-demand from master key
-- **Export Key:** Derived from user passphrase on import
-
-### Authentication
-
-- **PIN:** 6-digit numeric with rate limiting
-- **Biometric:** Delegated to OS-level security
-- **Rate Limiting:** 3 failed attempts → 30-second lockout
-- **Auto-Lock:** Configurable timeout (1min / 5min / 15min / Never)
-
-For detailed security analysis, see [THREAT_MODEL.md](./THREAT_MODEL.md).
-
----
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-pnpm test
-
-# Run tests in watch mode
-pnpm test --watch
-
-# Generate coverage report
-pnpm test --coverage
-```
-
----
-
-## 📦 Building for Production
-
-### Android
-
-```bash
-# Build for Play Store
-eas build --platform android --release
-
-# Submit to Play Store
-eas submit --platform android
-```
-
-### iOS
-
-```bash
-# Build for App Store
-eas build --platform ios --release
-
-# Submit to App Store
-eas submit --platform ios
-```
-
-See [BUILD_INSTRUCTIONS.md](./BUILD_INSTRUCTIONS.md) for detailed steps.
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on:
-
-- Reporting bugs
-- Requesting features
-- Submitting code
-- Code style guidelines
-- Testing requirements
-- Documentation standards
-
-### Development Setup
-
-```bash
-# Clone and install
-git clone https://github.com/tsvaultkeysafe/app.git
-cd tsvaultkeysafe
-pnpm install
-
-# Start development server
-pnpm start
-
-# Run tests
-pnpm test
-
-# Type check
-tsc --noEmit
-
-# Format code
-pnpm format
-
-# Lint code
-pnpm lint
-```
-
----
-
-## 🗺️ Roadmap
-
-### Version 1.0 (Current) ✅
-
-- ✅ Core vault functionality
-- ✅ PIN and biometric authentication
-- ✅ AES-256-GCM encryption
-- ✅ Product search and filtering
-- ✅ Dark mode support
-- ✅ Comprehensive documentation
-
-### Version 1.1 (Planned)
-
-- [ ] QR code scanner for license cards
-- [ ] Bulk CSV import
-- [ ] Expiry reminders with notifications
-- [ ] Stealth mode (decoy vault)
-- [ ] Multiple vaults
-- [ ] Custom categories
-
-### Version 1.2 (Planned)
-
-- [ ] Browser extension
-- [ ] Desktop companion app
-- [ ] Advanced threat detection
-- [ ] Compliance certifications (SOC 2, ISO 27001)
-
-### Future
-
-- [ ] Optional encrypted cloud sync (user-controlled)
-- [ ] Template packs
-- [ ] Community marketplace
-
----
-
-## 📄 License
-
-TSVaultKeySafe is released under the MIT License. See [LICENSE](./LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- **Expo** — Cross-platform mobile development framework
-- **React Native** — JavaScript framework for native apps
-- **CryptoJS** — Cryptographic library
-- **SQLite** — Embedded database
-- **Community** — All contributors and users
-
----
-
-## 📞 Support
-
-- **Documentation:** See [README_PROJECT.md](./README_PROJECT.md)
-- **Issues:** [GitHub Issues](https://github.com/tsvaultkeysafe/app/issues)
-- **Email:** support@tsvaultkeysafe.com
-- **Website:** https://tsvaultkeysafe.com
-
----
-
-## 🔒 Security Disclosure
-
-If you discover a security vulnerability, please email **security@tsvaultkeysafe.com** instead of using the issue tracker. We take security seriously and will respond promptly.
-
----
-
-## 📊 Project Stats
-
-| Metric | Value |
-|--------|-------|
-| **Language** | TypeScript |
-| **Framework** | React Native + Expo |
-| **Platforms** | iOS 14+, Android 31+ |
-| **Encryption** | AES-256-GCM |
-| **License** | MIT |
-| **Status** | Active Development |
-
----
-
-## 🌟 Star History
-
-If you find TSVaultKeySafe useful, please consider starring the repository to help others discover it!
-
----
-
-**Made with ❤️ by the TSVaultKeySafe Team**
-
-*Your privacy is our priority. All data stays on your device.*
+TSVaultKeySafe is distributed under the [MIT License](./LICENSE).

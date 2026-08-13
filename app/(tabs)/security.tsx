@@ -1,374 +1,113 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Switch,
-  Pressable,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useThemeColor } from '@/hooks/use-theme-color';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-import {
-  isVaultPinSet,
-  isVaultBiometricEnabled,
-  isVaultBiometricAvailable,
-  enableVaultBiometric,
-  disableVaultBiometric,
-  getVaultAuthState,
-  clearVaultAuthData,
-} from '@/lib/vault-auth';
 import { clearAllProducts, getDatabaseStats } from '@/lib/database';
 import { wipeEncryptionData } from '@/lib/encryption';
+import {
+  AUTO_LOCK_LIMITS,
+  clearVaultAuthData,
+  disableVaultBiometric,
+  enableVaultBiometric,
+  getVaultAutoLockTimeout,
+  getVaultAuthState,
+  setVaultAutoLockTimeout,
+} from '@/lib/vault-auth';
+import { endVaultSession } from '@/lib/vault-session';
+
+const lockOptions = [
+  { label: '15 sec', value: 15_000 },
+  { label: '1 min', value: AUTO_LOCK_LIMITS.DEFAULT_AUTO_LOCK_MS },
+  { label: '5 min', value: 5 * 60_000 },
+  { label: '15 min', value: AUTO_LOCK_LIMITS.MAX_AUTO_LOCK_MS },
+];
 
 export default function SecurityScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const accentColor = useThemeColor({}, 'tint');
-  const textColor = useThemeColor({}, 'text');
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [pinSet, setPinSet] = useState(false);
+  const [productCount, setProductCount] = useState(0);
+  const [autoLock, setAutoLock] = useState(AUTO_LOCK_LIMITS.DEFAULT_AUTO_LOCK_MS);
 
-  const [isPinSet, setIsPinSet] = useState(false);
-  const [isBiometricEnabled, setIsBiometricEnabled] = useState(false);
-  const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [screenshotBlocking, setScreenshotBlocking] = useState(false);
-  const [clipboardAutoClears, setClipboardAutoClears] = useState(true);
-  const [dbStats, setDbStats] = useState({ productCount: 0, totalSize: 0 });
-
-  useEffect(() => {
-    loadSecurityState();
-  }, []);
-
-  const loadSecurityState = async () => {
+  const load = useCallback(async () => {
     try {
-      setIsLoading(true);
-      const pinSet = await isVaultPinSet();
-      const bioEnabled = await isVaultBiometricEnabled();
-      const bioAvailable = await isVaultBiometricAvailable();
-      const stats = await getDatabaseStats();
-
-      setIsPinSet(pinSet);
-      setIsBiometricEnabled(bioEnabled);
-      setIsBiometricAvailable(bioAvailable);
-      setDbStats(stats);
-    } catch (error) {
-      console.error('Failed to load security state:', error);
+      setLoading(true);
+      const [state, stats, timeout] = await Promise.all([getVaultAuthState(), getDatabaseStats(), getVaultAutoLockTimeout()]);
+      setPinSet(state.isPinSet);
+      setBiometricAvailable(state.isBiometricAvailable);
+      setBiometricEnabled(state.isBiometricEnabled);
+      setProductCount(stats.productCount);
+      setAutoLock(timeout);
+    } catch {
+      router.replace('/unlock');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }, [router]);
 
-  const handleBiometricToggle = async (value: boolean) => {
+  useEffect(() => { void load(); }, [load]);
+
+  const toggleBiometric = async (enabled: boolean) => {
     try {
-      if (value) {
-        await enableVaultBiometric();
-        setIsBiometricEnabled(true);
-        Alert.alert('Success', 'Biometric authentication enabled');
-      } else {
-        await disableVaultBiometric();
-        setIsBiometricEnabled(false);
-        Alert.alert('Success', 'Biometric authentication disabled');
-      }
+      if (enabled) await enableVaultBiometric(); else await disableVaultBiometric();
+      setBiometricEnabled(enabled);
     } catch (error) {
-      console.error('Failed to toggle biometric:', error);
-      Alert.alert('Error', 'Failed to update biometric setting');
+      Alert.alert('Unable to update biometrics', error instanceof Error ? error.message : 'Please try again.');
     }
   };
 
-  const handleWipeVault = () => {
-    Alert.alert(
-      'Wipe All Data',
-      'This will permanently delete all products and reset the vault. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Wipe',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await clearAllProducts();
-              await clearVaultAuthData();
-              await wipeEncryptionData();
-              Alert.alert('Success', 'Vault wiped successfully');
-              await loadSecurityState();
-            } catch (error) {
-              console.error('Failed to wipe vault:', error);
-              Alert.alert('Error', 'Failed to wipe vault');
-            }
-          },
-        },
-      ]
-    );
+  const chooseAutoLock = async (value: number) => {
+    try {
+      await setVaultAutoLockTimeout(value);
+      setAutoLock(value);
+    } catch { Alert.alert('Unable to update auto-lock', 'Please try again.'); }
   };
 
-  if (isLoading) {
-    return (
-      <ThemedView style={styles.container}>
-        <ActivityIndicator size="large" color={accentColor} />
-      </ThemedView>
-    );
-  }
+  const lockNow = () => {
+    endVaultSession();
+    router.replace('/unlock');
+  };
 
+  const wipeVault = () => {
+    Alert.alert('Permanently wipe vault?', `This removes all ${productCount} encrypted records, the vault key, PIN, and security preferences from this device. It cannot be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Wipe permanently', style: 'destructive', onPress: async () => {
+        try {
+          await clearAllProducts();
+          await clearVaultAuthData();
+          await wipeEncryptionData();
+          endVaultSession();
+          router.replace('/setup');
+        } catch { Alert.alert('Wipe incomplete', 'The vault could not be fully cleared. Restart the app and try again.'); }
+      } },
+    ]);
+  };
+
+  if (loading) return <ThemedView style={styles.center}><ActivityIndicator size="large" color="#14B8A6" /></ThemedView>;
   return (
-    <ThemedView
-      style={[
-        styles.container,
-        {
-          paddingTop: Math.max(insets.top, 20),
-          paddingBottom: Math.max(insets.bottom, 20),
-        },
-      ]}
-    >
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <ThemedText type="title">Security</ThemedText>
-          <ThemedText style={styles.subtitle}>
-            Manage vault encryption and authentication
-          </ThemedText>
-        </View>
-
-        {/* Encryption Status */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Encryption
-          </ThemedText>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5' },
-            ]}
-          >
-            <View style={styles.cardRow}>
-              <ThemedText>Algorithm</ThemedText>
-              <ThemedText style={styles.cardValue}>AES-256-GCM</ThemedText>
-            </View>
-            <View style={[styles.cardRow, styles.cardRowBorder]}>
-              <ThemedText>Storage</ThemedText>
-              <ThemedText style={styles.cardValue}>Local Only</ThemedText>
-            </View>
-            <View style={styles.cardRow}>
-              <ThemedText>Status</ThemedText>
-              <ThemedText style={[styles.cardValue, { color: '#00D084' }]}>
-                🔒 Encrypted
-              </ThemedText>
-            </View>
-          </View>
-        </View>
-
-        {/* Authentication */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Authentication
-          </ThemedText>
-
-          {/* PIN Status */}
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5' },
-            ]}
-          >
-            <View style={styles.cardRow}>
-              <ThemedText>PIN Protection</ThemedText>
-              <ThemedText style={[styles.cardValue, { color: isPinSet ? '#00D084' : '#FFB800' }]}>
-                {isPinSet ? '✓ Set' : '○ Not Set'}
-              </ThemedText>
-            </View>
-          </View>
-
-          {/* Biometric */}
-          {isBiometricAvailable && (
-            <View
-              style={[
-                styles.card,
-                { backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5' },
-                styles.cardMarginTop,
-              ]}
-            >
-              <View style={styles.cardRow}>
-                <ThemedText>Biometric Unlock</ThemedText>
-                <Switch
-                  value={isBiometricEnabled}
-                  onValueChange={handleBiometricToggle}
-                  trackColor={{ false: '#767577', true: accentColor + '80' }}
-                  thumbColor={isBiometricEnabled ? accentColor : '#f4f3f4'}
-                />
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Privacy Settings */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Privacy
-          </ThemedText>
-
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5' },
-            ]}
-          >
-            <View style={styles.cardRow}>
-              <ThemedText>Screenshot Blocking</ThemedText>
-              <Switch
-                value={screenshotBlocking}
-                onValueChange={setScreenshotBlocking}
-                trackColor={{ false: '#767577', true: accentColor + '80' }}
-                thumbColor={screenshotBlocking ? accentColor : '#f4f3f4'}
-              />
-            </View>
-            <View style={[styles.cardRow, styles.cardRowBorder]}>
-              <ThemedText>Clipboard Auto-Clear</ThemedText>
-              <Switch
-                value={clipboardAutoClears}
-                onValueChange={setClipboardAutoClears}
-                trackColor={{ false: '#767577', true: accentColor + '80' }}
-                thumbColor={clipboardAutoClears ? accentColor : '#f4f3f4'}
-              />
-            </View>
-          </View>
-
-          <ThemedText style={styles.description}>
-            Screenshot blocking prevents screenshots while the vault is open. Clipboard auto-clear
-            removes copied license keys after 30 seconds.
-          </ThemedText>
-        </View>
-
-        {/* Vault Statistics */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Vault Statistics
-          </ThemedText>
-
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5' },
-            ]}
-          >
-            <View style={styles.cardRow}>
-              <ThemedText>Products Stored</ThemedText>
-              <ThemedText style={styles.cardValue}>{dbStats.productCount}</ThemedText>
-            </View>
-          </View>
-        </View>
-
-        {/* Danger Zone */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Danger Zone
-          </ThemedText>
-
-          <Pressable
-            onPress={handleWipeVault}
-            style={({ pressed }) => [
-              styles.dangerButton,
-              pressed && styles.dangerButtonPressed,
-            ]}
-          >
-            <ThemedText style={styles.dangerButtonText}>Wipe All Data</ThemedText>
-          </Pressable>
-
-          <ThemedText style={styles.description}>
-            This will permanently delete all products and reset the vault. This action cannot be
-            undone.
-          </ThemedText>
-        </View>
-
-        {/* Footer */}
-        <View style={styles.footer}>
-          <ThemedText style={styles.footerText}>
-            All data is encrypted locally on your device. No information is sent to cloud services.
-          </ThemedText>
-        </View>
+    <ThemedView style={[styles.container, { paddingTop: Math.max(insets.top, 18) }]}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}><ThemedText type="title" style={styles.title}>Security</ThemedText><ThemedText style={styles.subtitle}>Controls protecting this vault on this device.</ThemedText></View>
+        <Section title="Protection status"><Card><StatusRow label="Vault encryption" value="XChaCha20-Poly1305" active /><StatusRow label="Data storage" value="Local only" active divider /><StatusRow label="Screen capture" value="Blocked while open" active divider /><StatusRow label="Background handling" value="Locks immediately" active divider /></Card></Section>
+        <Section title="Authentication"><Card><StatusRow label="8-digit vault PIN" value={pinSet ? 'Enabled' : 'Missing'} active={pinSet} />{biometricAvailable && <View style={[styles.row, styles.divider]}><View><ThemedText style={styles.rowLabel}>Biometric unlock</ThemedText><ThemedText style={styles.helper}>Uses the device biometric prompt only.</ThemedText></View><Switch value={biometricEnabled} onValueChange={(value) => void toggleBiometric(value)} trackColor={{ false: '#94A3B8', true: '#14B8A6' }} /></View>}</Card></Section>
+        <Section title="Auto-lock"><Card><ThemedText style={styles.helper}>The vault always locks when the app leaves the foreground. Choose the inactivity limit while it remains open.</ThemedText><View style={styles.optionGrid}>{lockOptions.map((option) => <Pressable key={option.value} onPress={() => void chooseAutoLock(option.value)} style={[styles.option, autoLock === option.value && styles.optionSelected]}><ThemedText style={[styles.optionText, autoLock === option.value && styles.optionTextSelected]}>{option.label}</ThemedText></Pressable>)}</View></Card></Section>
+        <Section title="Vault management"><Card><StatusRow label="Encrypted records" value={String(productCount)} /><Pressable onPress={lockNow} style={styles.lockButton}><ThemedText style={styles.lockButtonText}>Lock vault now</ThemedText></Pressable></Card></Section>
+        <Section title="Danger zone"><Pressable onPress={wipeVault} style={({ pressed }) => [styles.wipeButton, pressed && styles.pressed]}><ThemedText style={styles.wipeText}>Wipe vault permanently</ThemedText></Pressable><ThemedText style={styles.warning}>This action deletes all local encrypted records and access keys. No cloud copy exists.</ThemedText></Section>
       </ScrollView>
     </ThemedView>
   );
 }
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) { return <View style={styles.section}><ThemedText type="subtitle" style={styles.sectionTitle}>{title}</ThemedText>{children}</View>; }
+function Card({ children }: { children: React.ReactNode }) { return <View style={styles.card}>{children}</View>; }
+function StatusRow({ label, value, active, divider }: { label: string; value: string; active?: boolean; divider?: boolean }) { return <View style={[styles.row, divider && styles.divider]}><ThemedText style={styles.rowLabel}>{label}</ThemedText><ThemedText style={[styles.value, active && styles.active]}>{value}</ThemedText></View>; }
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  header: {
-    marginBottom: 24,
-  },
-  subtitle: {
-    fontSize: 14,
-    marginTop: 4,
-    opacity: 0.7,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    marginBottom: 12,
-  },
-  card: {
-    borderRadius: 12,
-    padding: 16,
-  },
-  cardMarginTop: {
-    marginTop: 12,
-  },
-  cardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  cardRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  cardValue: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  description: {
-    fontSize: 12,
-    marginTop: 12,
-    opacity: 0.6,
-    lineHeight: 18,
-  },
-  dangerButton: {
-    backgroundColor: '#FF3B30',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  dangerButtonPressed: {
-    opacity: 0.8,
-  },
-  dangerButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  footer: {
-    paddingVertical: 24,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(0, 208, 132, 0.1)',
-    borderRadius: 8,
-    marginBottom: 24,
-  },
-  footerText: {
-    fontSize: 12,
-    lineHeight: 18,
-    opacity: 0.7,
-  },
+  container: { flex: 1, paddingHorizontal: 18 }, center: { flex: 1, justifyContent: 'center', alignItems: 'center' }, content: { paddingBottom: 110 }, header: { marginBottom: 24 }, title: { fontSize: 30 }, subtitle: { marginTop: 5, opacity: 0.66 }, section: { marginBottom: 25 }, sectionTitle: { fontSize: 17, marginBottom: 10 }, card: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 16, overflow: 'hidden', backgroundColor: '#FFFFFF' }, row: { minHeight: 60, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, divider: { borderTopWidth: 1, borderTopColor: '#E2E8F0' }, rowLabel: { fontWeight: '700', flex: 1 }, value: { fontSize: 13, fontWeight: '800', color: '#475569', textAlign: 'right' }, active: { color: '#0F766E' }, helper: { fontSize: 12, lineHeight: 18, opacity: 0.64, padding: 15, paddingBottom: 4 }, optionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 15 }, option: { minWidth: '45%', alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: '#E2E8F0' }, optionSelected: { backgroundColor: '#0F766E' }, optionText: { fontSize: 13, fontWeight: '800', color: '#334155' }, optionTextSelected: { color: '#FFFFFF' }, lockButton: { margin: 15, marginTop: 0, alignItems: 'center', paddingVertical: 12, borderRadius: 11, backgroundColor: '#CCFBF1' }, lockButtonText: { color: '#0F766E', fontWeight: '800' }, wipeButton: { borderRadius: 13, alignItems: 'center', paddingVertical: 15, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FCA5A5' }, wipeText: { color: '#B91C1C', fontWeight: '800' }, warning: { fontSize: 12, lineHeight: 18, opacity: 0.65, marginTop: 10 }, pressed: { opacity: 0.65 },
 });

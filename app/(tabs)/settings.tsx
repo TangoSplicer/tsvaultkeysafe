@@ -1,293 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  Linking,
-  Alert,
-} from 'react-native';
+import React from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useThemeColor } from '@/hooks/use-theme-color';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-const APP_VERSION = '1.0.0';
+import { CRYPTOGRAPHY_VERSION, PIN_WORK_FACTOR } from '@/lib/encryption';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const accentColor = useThemeColor({}, 'tint');
-
-  const openUrl = async (url: string) => {
-    try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert('Error', 'Cannot open URL');
-      }
-    } catch (error) {
-      console.error('Failed to open URL:', error);
-      Alert.alert('Error', 'Failed to open URL');
-    }
-  };
-
-  const handleSendEmail = async (email: string, subject: string) => {
-    const url = `mailto:${email}?subject=${encodeURIComponent(subject)}`;
-    await openUrl(url);
-  };
-
   return (
-    <ThemedView
-      style={[
-        styles.container,
-        {
-          paddingTop: Math.max(insets.top, 20),
-          paddingBottom: Math.max(insets.bottom, 20),
-        },
-      ]}
-    >
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <ThemedText type="title">Settings</ThemedText>
-          <ThemedText style={styles.subtitle}>
-            App preferences and information
-          </ThemedText>
-        </View>
-
-        {/* About Section */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            About
-          </ThemedText>
-
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5' },
-            ]}
-          >
-            <View style={styles.cardRow}>
-              <ThemedText>App Name</ThemedText>
-              <ThemedText style={styles.cardValue}>TSVaultKeySafe</ThemedText>
-            </View>
-            <View style={[styles.cardRow, styles.cardRowBorder]}>
-              <ThemedText>Version</ThemedText>
-              <ThemedText style={styles.cardValue}>{APP_VERSION}</ThemedText>
-            </View>
-            <View style={styles.cardRow}>
-              <ThemedText>Type</ThemedText>
-              <ThemedText style={styles.cardValue}>Offline-First</ThemedText>
-            </View>
-          </View>
-
-          <ThemedText style={styles.description}>
-            TSVaultKeySafe is a privacy-first, offline-only digital vault for securely storing
-            product licenses, serial numbers, and warranty documents. No accounts, no cloud sync,
-            no tracking.
-          </ThemedText>
-        </View>
-
-        {/* Legal Section */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Legal
-          </ThemedText>
-
-          <Pressable
-            onPress={() => openUrl('https://example.com/privacy')}
-            style={({ pressed }) => [
-              styles.linkButton,
-              {
-                backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <ThemedText style={[styles.linkButtonText, { color: accentColor }]}>
-              Privacy Policy
-            </ThemedText>
-          </Pressable>
-
-          <Pressable
-            onPress={() => openUrl('https://example.com/terms')}
-            style={({ pressed }) => [
-              styles.linkButton,
-              {
-                backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <ThemedText style={[styles.linkButtonText, { color: accentColor }]}>
-              Terms of Service
-            </ThemedText>
-          </Pressable>
-
-          <Pressable
-            onPress={() => openUrl('https://example.com/threat-model')}
-            style={({ pressed }) => [
-              styles.linkButton,
-              {
-                backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <ThemedText style={[styles.linkButtonText, { color: accentColor }]}>
-              Threat Model
-            </ThemedText>
-          </Pressable>
-
-          <Pressable
-            onPress={() => openUrl('https://github.com/tsvaultkeysafe/app')}
-            style={({ pressed }) => [
-              styles.linkButton,
-              {
-                backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <ThemedText style={[styles.linkButtonText, { color: accentColor }]}>
-              Source Code (GitHub)
-            </ThemedText>
-          </Pressable>
-        </View>
-
-        {/* Support Section */}
-        <View style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Support
-          </ThemedText>
-
-          <Pressable
-            onPress={() => handleSendEmail('support@tsvaultkeysafe.com', 'Bug Report')}
-            style={({ pressed }) => [
-              styles.linkButton,
-              {
-                backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <ThemedText style={[styles.linkButtonText, { color: accentColor }]}>
-              Report Bug
-            </ThemedText>
-          </Pressable>
-
-          <Pressable
-            onPress={() => handleSendEmail('support@tsvaultkeysafe.com', 'Feature Request')}
-            style={({ pressed }) => [
-              styles.linkButton,
-              {
-                backgroundColor: colorScheme === 'dark' ? '#1A1A1A' : '#F5F5F5',
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
-          >
-            <ThemedText style={[styles.linkButtonText, { color: accentColor }]}>
-              Request Feature
-            </ThemedText>
-          </Pressable>
-        </View>
-
-        {/* Privacy Notice */}
-        <View style={styles.section}>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: 'rgba(0, 208, 132, 0.1)' },
-            ]}
-          >
-            <ThemedText style={styles.privacyNotice}>
-              🔒 Your privacy is our priority. TSVaultKeySafe collects zero data. All information
-              is encrypted locally on your device and never transmitted to cloud services.
-            </ThemedText>
-          </View>
-        </View>
-
-        {/* Footer */}
-        <View style={styles.footer}>
-          <ThemedText style={styles.footerText}>
-            © 2024 TSVaultKeySafe. All rights reserved.
-          </ThemedText>
-        </View>
+    <ThemedView style={[styles.container, { paddingTop: Math.max(insets.top, 18) }]}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.brand}><View style={styles.mark}><View style={styles.shackle} /><View style={styles.body}><View style={styles.keyhole} /></View></View><ThemedText type="title" style={styles.title}>TSVaultKeySafe</ThemedText><ThemedText style={styles.tagline}>Private license and product inventory, built to remain on your device.</ThemedText></View>
+        <Section title="Privacy promise"><Card><ThemedText style={styles.copy}>TSVaultKeySafe does not require an account, send vault records to a service, or include analytics in the application flow. Your encrypted database, device-protected key, and PIN verifier stay on this device.</ThemedText></Card></Section>
+        <Section title="Security design"><Card><Row label="Record protection" value="XChaCha20-Poly1305" /><Row label="Key separation" value="HKDF-SHA-256" divider /><Row label="PIN verifier" value={`PBKDF2-SHA-256 · ${PIN_WORK_FACTOR.toLocaleString()} rounds`} divider /><Row label="Cryptography format" value={`v${CRYPTOGRAPHY_VERSION}`} divider /><Row label="Vault behavior" value="Locks on background" divider /></Card></Section>
+        <Section title="Important limitations"><Card><ThemedText style={styles.copy}>No mobile application can fully protect data on a compromised, rooted, jailbroken, or unlocked device. Keep your operating system current, use a device passcode, and avoid sharing your vault PIN. Clearing app data or using the permanent wipe option cannot be reversed.</ThemedText></Card></Section>
+        <Section title="About"><Card><Row label="Version" value="1.1.0" /><Row label="Storage mode" value="Offline only" divider /><Row label="License" value="MIT" divider /></Card></Section>
       </ScrollView>
     </ThemedView>
   );
 }
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) { return <View style={styles.section}><ThemedText type="subtitle" style={styles.sectionTitle}>{title}</ThemedText>{children}</View>; }
+function Card({ children }: { children: React.ReactNode }) { return <View style={styles.card}>{children}</View>; }
+function Row({ label, value, divider }: { label: string; value: string; divider?: boolean }) { return <View style={[styles.row, divider && styles.divider]}><ThemedText style={styles.rowLabel}>{label}</ThemedText><ThemedText style={styles.rowValue}>{value}</ThemedText></View>; }
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  header: {
-    marginBottom: 24,
-  },
-  subtitle: {
-    fontSize: 14,
-    marginTop: 4,
-    opacity: 0.7,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    marginBottom: 12,
-  },
-  card: {
-    borderRadius: 12,
-    padding: 16,
-  },
-  cardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  cardRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  cardValue: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  description: {
-    fontSize: 12,
-    marginTop: 12,
-    opacity: 0.6,
-    lineHeight: 18,
-  },
-  linkButton: {
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
-  linkButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  privacyNotice: {
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  footer: {
-    paddingVertical: 24,
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: 12,
-    opacity: 0.5,
-  },
+  container: { flex: 1, paddingHorizontal: 18 }, content: { paddingBottom: 110 }, brand: { alignItems: 'center', paddingHorizontal: 10, marginBottom: 30 }, mark: { width: 64, height: 67, marginBottom: 15 }, shackle: { position: 'absolute', top: 0, left: 15, width: 34, height: 30, borderWidth: 6, borderColor: '#14B8A6', borderBottomWidth: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20 }, body: { position: 'absolute', bottom: 0, left: 5, width: 54, height: 43, borderRadius: 13, backgroundColor: '#0F172A', borderWidth: 2, borderColor: '#2DD4BF', alignItems: 'center', justifyContent: 'center' }, keyhole: { width: 7, height: 15, borderRadius: 7, backgroundColor: '#5EEAD4' }, title: { fontSize: 28 }, tagline: { marginTop: 7, textAlign: 'center', opacity: 0.67, lineHeight: 20 }, section: { marginBottom: 25 }, sectionTitle: { fontSize: 17, marginBottom: 10 }, card: { borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', overflow: 'hidden' }, copy: { padding: 16, fontSize: 14, lineHeight: 21, opacity: 0.76 }, row: { minHeight: 58, paddingHorizontal: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 15 }, divider: { borderTopWidth: 1, borderTopColor: '#E2E8F0' }, rowLabel: { flex: 1, fontWeight: '700', fontSize: 14 }, rowValue: { maxWidth: '55%', color: '#0F766E', textAlign: 'right', fontWeight: '700', fontSize: 12 },
 });
