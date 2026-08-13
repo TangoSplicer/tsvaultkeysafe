@@ -51,7 +51,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-${{ github.run_id }}
           path: coverage/
@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload APK artifact
         id: upload_apk
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: TSVaultKeySafe-debug-apk-${{ github.run_id }}
           path: dist/
