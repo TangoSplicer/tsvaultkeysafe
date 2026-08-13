@@ -4,24 +4,24 @@ TSVaultKeySafe uses GitHub Actions to validate each pull request and every push 
 
 ## What the pipeline does
 
-| Stage             | Trigger                                             | Outcome                                                                                                                                              |
-| ----------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source validation | Pull requests, pushes, manual runs                  | Installs the locked dependency graph, runs linting, strict TypeScript checks, and cryptography tests.                                                |
-| Android build     | After successful validation                         | Recreates the Android native project from Expo configuration, builds a debug APK, calculates SHA-256, and uploads both files as a workflow artifact. |
-| Code scanning     | Pull requests, pushes, weekly schedule, manual runs | Runs CodeQL v4 against JavaScript and TypeScript using extended security and quality queries.                                                        |
+| Stage             | Trigger                                             | Outcome                                                                                                                                                                                                 |
+| ----------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source validation | Pull requests, pushes, manual runs                  | Installs the locked dependency graph, runs linting, strict TypeScript checks, and cryptography tests.                                                                                                   |
+| Android build     | After successful validation                         | Recreates the Android native project from Expo configuration, builds a bundled release APK, verifies its embedded JavaScript bundle, calculates SHA-256, and uploads both files as a workflow artifact. |
+| Code scanning     | Pull requests, pushes, weekly schedule, manual runs | Runs CodeQL v4 against JavaScript and TypeScript using extended security and quality queries.                                                                                                           |
 
 The workflow uses **Node.js 24** and `pnpm@11.21.0`. Dependency installation is locked with `pnpm install --frozen-lockfile`, which prevents the runner from resolving a different package graph than the committed lockfile. The committed pnpm workspace policy also explicitly denies the unneeded `unrs-resolver` lifecycle build rather than allowing an interactive approval prompt in CI. [1]
 
 ## Downloading a CI-built APK
 
-After a successful workflow run, open the **Actions** tab in GitHub, choose the run named **Validate and Build Android APK**, then download the artifact named `TSVaultKeySafe-debug-apk-<run-id>`. The artifact contains two files:
+After a successful workflow run, open the **Actions** tab in GitHub, choose the run named **Validate and Build Android APK**, then download the artifact named `TSVaultKeySafe-bundled-apk-<run-id>`. The artifact contains two files:
 
-| File                                              | Purpose                                                      |
-| ------------------------------------------------- | ------------------------------------------------------------ |
-| `TSVaultKeySafe-<version>-<sha>-debug.apk`        | Installable Android debug build for development and testing. |
-| `TSVaultKeySafe-<version>-<sha>-debug.apk.sha256` | SHA-256 checksum for verifying the downloaded APK.           |
+| File                                                | Purpose                                                                |
+| --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `TSVaultKeySafe-<version>-<sha>-bundled.apk`        | Installable Android release build with the JavaScript bundle embedded. |
+| `TSVaultKeySafe-<version>-<sha>-bundled.apk.sha256` | SHA-256 checksum for verifying the downloaded APK.                     |
 
-The debug APK is **unsigned** and is not suitable for Play Store publication. It is retained for 30 days. GitHub’s artifact actions support configurable retention and expose an artifact URL from a completed upload. [2]
+The bundled APK runs without Metro because the workflow verifies that `assets/index.android.bundle` is embedded before upload. It is signed with the generated development key and is suitable for testing, but it is **not** suitable for Play Store publication. A store release requires a separately managed production signing key. The artifact is retained for 30 days. GitHub’s artifact actions support configurable retention and expose an artifact URL from a completed upload. [2]
 
 ## Running equivalent checks locally
 
@@ -33,15 +33,15 @@ pnpm install --frozen-lockfile
 pnpm run verify
 ```
 
-To generate a debug APK locally, use a clean Android prebuild before Gradle:
+To generate a self-contained APK locally, use a clean Android prebuild before Gradle:
 
 ```bash
 CI=1 EXPO_NO_TELEMETRY=1 pnpm exec expo prebuild --platform android --clean --no-install
 cd android
-./gradlew assembleDebug
+./gradlew assembleRelease
 ```
 
-The resulting APK will normally be under `android/app/build/outputs/apk/debug/`.
+The resulting APK will normally be under `android/app/build/outputs/apk/release/`.
 
 ## CodeQL v4 migration
 

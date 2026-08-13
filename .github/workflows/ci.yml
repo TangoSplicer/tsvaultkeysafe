@@ -89,19 +89,20 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      - name: Build installable debug APK
+      - name: Build self-contained release APK
         working-directory: android
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
 
-      - name: Package APK and checksum
+      - name: Package bundled APK and checksum
         id: package_apk
         shell: bash
         run: |
-          apk_path="$(find android/app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
+          apk_path="$(find android/app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
           test -n "$apk_path"
+          unzip -l "$apk_path" | grep -q 'assets/index.android.bundle'
           mkdir -p dist
           version="$(node -p "require('./package.json').version")"
-          apk_name="TSVaultKeySafe-${version}-${GITHUB_SHA::7}-debug.apk"
+          apk_name="TSVaultKeySafe-${version}-${GITHUB_SHA::7}-bundled.apk"
           cp "$apk_path" "dist/$apk_name"
           sha256sum "dist/$apk_name" | tee "dist/$apk_name.sha256"
           echo "apk_name=$apk_name" >> "$GITHUB_OUTPUT"
@@ -110,7 +111,7 @@ jobs:
         id: upload_apk
         uses: actions/upload-artifact@v6
         with:
-          name: TSVaultKeySafe-debug-apk-${{ github.run_id }}
+          name: TSVaultKeySafe-bundled-apk-${{ github.run_id }}
           path: dist/
           if-no-files-found: error
           retention-days: 30
@@ -120,10 +121,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo '## Android APK build'
+            echo '## Self-contained Android APK build'
             echo
             echo "- APK: \`${{ steps.package_apk.outputs.apk_name }}\`"
             echo "- Artifact: [Download APK](${{ steps.upload_apk.outputs.artifact-url }})"
-            echo '- Variant: `debug` (unsigned; intended for testing only)'
+            echo '- Variant: `release` with the JavaScript bundle embedded; no Metro server is required.'
             echo '- Integrity: the artifact includes a SHA-256 checksum file.'
           } >> "$GITHUB_STEP_SUMMARY"
