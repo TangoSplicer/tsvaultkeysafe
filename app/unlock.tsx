@@ -26,6 +26,10 @@ import {
 } from "@/lib/vault-auth";
 import { beginVaultSession } from "@/lib/vault-session";
 
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
 const PIN_LENGTH = 8;
 const SLOW_STARTUP_SECONDS = 8;
 
@@ -35,6 +39,11 @@ export default function UnlockScreen() {
   const [pin, setPin] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState(
+    "Checking vault PIN protection",
+  );
+  const [verificationElapsedSeconds, setVerificationElapsedSeconds] =
+    useState(0);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [lockoutRemainingTime, setLockoutRemainingTime] = useState(0);
   const [startupAttempt, setStartupAttempt] = useState(0);
@@ -133,16 +142,40 @@ export default function UnlockScreen() {
     return () => clearInterval(timer);
   }, [isLockedOut]);
 
+  useEffect(() => {
+    if (!isVerifying) return;
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setVerificationElapsedSeconds(
+        Math.floor((Date.now() - startedAt) / 1_000),
+      );
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [isVerifying]);
+
+  const beginVerification = async (message: string) => {
+    setVerificationElapsedSeconds(0);
+    setVerificationMessage(message);
+    setIsVerifying(true);
+    await yieldToUi();
+  };
+
   const completeUnlock = async () => {
+    setVerificationMessage("Retrieving your device-bound vault key");
     await initializeEncryption();
     beginVaultSession();
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setVerificationMessage("PIN verified — opening your vault");
+    try {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      // Haptic feedback is optional and must never prevent a completed unlock.
+    }
     router.replace("/(tabs)");
   };
 
   const attemptBiometricUnlock = async () => {
     try {
-      setIsVerifying(true);
+      await beginVerification("Waiting for your device biometric check");
       await authenticateVaultWithBiometric();
       await completeUnlock();
     } catch {
@@ -154,24 +187,41 @@ export default function UnlockScreen() {
 
   const verifyPin = async (candidate: string) => {
     if (lockoutRemainingTime > 0) return;
+    let pinVerified = false;
     try {
-      setIsVerifying(true);
+      await beginVerification(
+        "Checking PIN protection — this is intentionally thorough",
+      );
       await verifyVaultPin(candidate);
+      pinVerified = true;
       await completeUnlock();
     } catch {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      const state = await refreshAuthState();
-      if (state.isLockedOut) {
+      if (pinVerified) {
         Alert.alert(
-          "Vault temporarily locked",
-          `Try again in ${Math.ceil(state.lockoutRemainingTime / 1_000)} seconds.`,
+          "Vault opening needs attention",
+          "Your PIN was verified, but the vault could not finish opening. Please retry without changing your PIN.",
         );
       } else {
-        const remaining = Math.max(0, 5 - state.failedAttempts);
-        Alert.alert(
-          "Incorrect PIN",
-          `${remaining} attempt${remaining === 1 ? "" : "s"} before a temporary lockout.`,
-        );
+        try {
+          await Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Error,
+          );
+        } catch {
+          // Haptic feedback is optional.
+        }
+        const state = await refreshAuthState();
+        if (state.isLockedOut) {
+          Alert.alert(
+            "Vault temporarily locked",
+            `Try again in ${Math.ceil(state.lockoutRemainingTime / 1_000)} seconds.`,
+          );
+        } else {
+          const remaining = Math.max(0, 5 - state.failedAttempts);
+          Alert.alert(
+            "Incorrect PIN",
+            `${remaining} attempt${remaining === 1 ? "" : "s"} before a temporary lockout.`,
+          );
+        }
       }
     } finally {
       setPin("");
@@ -314,7 +364,20 @@ export default function UnlockScreen() {
           {isVerifying && (
             <View style={styles.verifying}>
               <ActivityIndicator size="small" color="#14B8A6" />
-              <ThemedText>Verifying securely…</ThemedText>
+              <ThemedText style={styles.verifyingMessage}>
+                {verificationMessage}
+              </ThemedText>
+              <ThemedText style={styles.verifyingMeta}>
+                {verificationElapsedSeconds === 0
+                  ? "Starting now"
+                  : `${verificationElapsedSeconds}s elapsed`}
+              </ThemedText>
+              {verificationElapsedSeconds >= 4 && (
+                <ThemedText style={styles.verifyingHint}>
+                  The PIN check deliberately uses a strong work factor. Please
+                  keep the app open while it completes.
+                </ThemedText>
+              )}
             </View>
           )}
           {biometricEnabled && !isVerifying && lockoutRemainingTime === 0 && (
@@ -520,7 +583,16 @@ const styles = StyleSheet.create({
     marginTop: 20,
     fontWeight: "700",
   },
-  verifying: { alignItems: "center", gap: 8, marginTop: 20 },
+  verifying: { alignItems: "center", gap: 7, marginTop: 20 },
+  verifyingMessage: { textAlign: "center", fontWeight: "700" },
+  verifyingMeta: { fontSize: 12, opacity: 0.62 },
+  verifyingHint: {
+    maxWidth: 270,
+    textAlign: "center",
+    fontSize: 12,
+    lineHeight: 18,
+    opacity: 0.62,
+  },
   biometricButton: {
     alignItems: "center",
     borderWidth: 1,

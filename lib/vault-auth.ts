@@ -1,14 +1,14 @@
-import * as SecureStore from 'expo-secure-store';
-import * as LocalAuthentication from 'expo-local-authentication';
-import { hashPin, verifyPin } from './encryption';
+import * as SecureStore from "expo-secure-store";
+import * as LocalAuthentication from "expo-local-authentication";
+import { hashPin, verifyPin } from "./encryption";
 
-const VAULT_PIN_HASH_KEY = 'tsvault.pin-verifier.v2';
-const VAULT_BIOMETRIC_ENABLED_KEY = 'tsvault.biometric-enabled.v2';
-const VAULT_LAST_UNLOCK_KEY = 'tsvault.last-unlock.v2';
-const VAULT_AUTO_LOCK_TIMEOUT_KEY = 'tsvault.auto-lock-timeout.v2';
-const VAULT_FAILED_ATTEMPTS_KEY = 'tsvault.failed-attempts.v2';
-const VAULT_LOCKOUT_TIME_KEY = 'tsvault.lockout-until.v2';
-const KEYCHAIN_SERVICE = 'com.tsvaultkeysafe.authentication';
+const VAULT_PIN_HASH_KEY = "tsvault.pin-verifier.v2";
+const VAULT_BIOMETRIC_ENABLED_KEY = "tsvault.biometric-enabled.v2";
+const VAULT_LAST_UNLOCK_KEY = "tsvault.last-unlock.v2";
+const VAULT_AUTO_LOCK_TIMEOUT_KEY = "tsvault.auto-lock-timeout.v2";
+const VAULT_FAILED_ATTEMPTS_KEY = "tsvault.failed-attempts.v2";
+const VAULT_LOCKOUT_TIME_KEY = "tsvault.lockout-until.v2";
+const KEYCHAIN_SERVICE = "com.tsvaultkeysafe.authentication";
 const DEFAULT_AUTO_LOCK_MS = 60_000;
 const MIN_AUTO_LOCK_MS = 15_000;
 const MAX_AUTO_LOCK_MS = 15 * 60_000;
@@ -44,8 +44,16 @@ export interface VaultAuthState {
 
 export async function initializeVaultAuth(): Promise<void> {
   const available = await isVaultBiometricAvailable();
-  if (!available) {
-    await SecureStore.setItemAsync(VAULT_BIOMETRIC_ENABLED_KEY, 'false', options());
+  if (
+    !available &&
+    (await SecureStore.getItemAsync(VAULT_BIOMETRIC_ENABLED_KEY, options())) ===
+      null
+  ) {
+    await SecureStore.setItemAsync(
+      VAULT_BIOMETRIC_ENABLED_KEY,
+      "false",
+      options(),
+    );
   }
 }
 
@@ -57,18 +65,18 @@ export async function setVaultPin(pin: string): Promise<void> {
 
 export async function verifyVaultPin(pin: string): Promise<boolean> {
   if (await checkVaultLockout()) {
-    throw new Error('Too many failed attempts. Try again later.');
+    throw new Error("Too many failed attempts. Try again later.");
   }
 
   const pinHash = await SecureStore.getItemAsync(VAULT_PIN_HASH_KEY, options());
   if (!pinHash) {
-    throw new Error('PIN not set');
+    throw new Error("PIN not set");
   }
 
   const isValid = await verifyPin(pin, pinHash);
   if (!isValid) {
     await incrementVaultFailedAttempts();
-    throw new Error('Invalid PIN');
+    throw new Error("Invalid PIN");
   }
 
   await clearVaultFailedAttempts();
@@ -84,30 +92,38 @@ export async function isVaultBiometricAvailable(): Promise<boolean> {
 
 export async function enableVaultBiometric(): Promise<void> {
   if (!(await isVaultBiometricAvailable())) {
-    throw new Error('Biometric authentication is not available on this device');
+    throw new Error("Biometric authentication is not available on this device");
   }
-  await SecureStore.setItemAsync(VAULT_BIOMETRIC_ENABLED_KEY, 'true', options());
+  await SecureStore.setItemAsync(
+    VAULT_BIOMETRIC_ENABLED_KEY,
+    "true",
+    options(),
+  );
 }
 
 export async function disableVaultBiometric(): Promise<void> {
-  await SecureStore.setItemAsync(VAULT_BIOMETRIC_ENABLED_KEY, 'false', options());
+  await SecureStore.setItemAsync(
+    VAULT_BIOMETRIC_ENABLED_KEY,
+    "false",
+    options(),
+  );
 }
 
 export async function authenticateVaultWithBiometric(): Promise<boolean> {
   if (!(await isVaultBiometricEnabled())) {
-    throw new Error('Biometric unlock is not enabled');
+    throw new Error("Biometric unlock is not enabled");
   }
   if (!(await isVaultBiometricAvailable())) {
-    throw new Error('Biometric authentication is not available');
+    throw new Error("Biometric authentication is not available");
   }
 
   const result = await LocalAuthentication.authenticateAsync({
-    promptMessage: 'Unlock TSVaultKeySafe',
-    cancelLabel: 'Use PIN',
+    promptMessage: "Unlock TSVaultKeySafe",
+    cancelLabel: "Use PIN",
     disableDeviceFallback: true,
   });
   if (!result.success) {
-    throw new Error('Biometric authentication was not completed');
+    throw new Error("Biometric authentication was not completed");
   }
 
   await clearVaultFailedAttempts();
@@ -120,19 +136,28 @@ export async function isVaultPinSet(): Promise<boolean> {
 }
 
 export async function isVaultBiometricEnabled(): Promise<boolean> {
-  return (await SecureStore.getItemAsync(VAULT_BIOMETRIC_ENABLED_KEY, options())) === 'true';
+  return (
+    (await SecureStore.getItemAsync(VAULT_BIOMETRIC_ENABLED_KEY, options())) ===
+    "true"
+  );
 }
 
 export async function getVaultAuthState(): Promise<VaultAuthState> {
-  const [isPinSet, isBiometricEnabled, isBiometricAvailable, failedAttempts, isLockedOut, lockoutRemainingTime] =
-    await Promise.all([
-      isVaultPinSet(),
-      isVaultBiometricEnabled(),
-      isVaultBiometricAvailable(),
-      getVaultFailedAttempts(),
-      checkVaultLockout(),
-      getVaultLockoutRemainingTime(),
-    ]);
+  const [
+    isPinSet,
+    isBiometricEnabled,
+    isBiometricAvailable,
+    failedAttempts,
+    isLockedOut,
+    lockoutRemainingTime,
+  ] = await Promise.all([
+    isVaultPinSet(),
+    isVaultBiometricEnabled(),
+    isVaultBiometricAvailable(),
+    getVaultFailedAttempts(),
+    checkVaultLockout(),
+    getVaultLockoutRemainingTime(),
+  ]);
 
   return {
     isPinSet,
@@ -163,9 +188,15 @@ export async function getVaultAutoLockTimeout(): Promise<number> {
   return timeout || DEFAULT_AUTO_LOCK_MS;
 }
 
-export async function setVaultAutoLockTimeout(timeoutMs: number): Promise<void> {
-  if (!Number.isInteger(timeoutMs) || timeoutMs < MIN_AUTO_LOCK_MS || timeoutMs > MAX_AUTO_LOCK_MS) {
-    throw new Error('Auto-lock timeout is outside the allowed range');
+export async function setVaultAutoLockTimeout(
+  timeoutMs: number,
+): Promise<void> {
+  if (
+    !Number.isInteger(timeoutMs) ||
+    timeoutMs < MIN_AUTO_LOCK_MS ||
+    timeoutMs > MAX_AUTO_LOCK_MS
+  ) {
+    throw new Error("Auto-lock timeout is outside the allowed range");
   }
   await setNumber(VAULT_AUTO_LOCK_TIMEOUT_KEY, timeoutMs);
 }
@@ -176,7 +207,10 @@ async function incrementVaultFailedAttempts(): Promise<void> {
 
   if (attempts >= MAX_ATTEMPTS_BEFORE_LOCKOUT) {
     const exponent = Math.min(attempts - MAX_ATTEMPTS_BEFORE_LOCKOUT, 4);
-    const duration = Math.min(INITIAL_LOCKOUT_MS * 2 ** exponent, MAX_LOCKOUT_MS);
+    const duration = Math.min(
+      INITIAL_LOCKOUT_MS * 2 ** exponent,
+      MAX_LOCKOUT_MS,
+    );
     await setNumber(VAULT_LOCKOUT_TIME_KEY, Date.now() + duration);
   }
 }
@@ -206,7 +240,10 @@ async function getVaultLockoutRemainingTime(): Promise<number> {
   return Math.max(0, (await getNumber(VAULT_LOCKOUT_TIME_KEY)) - Date.now());
 }
 
-export async function changeVaultPin(oldPin: string, newPin: string): Promise<void> {
+export async function changeVaultPin(
+  oldPin: string,
+  newPin: string,
+): Promise<void> {
   await verifyVaultPin(oldPin);
   await setVaultPin(newPin);
 }
@@ -222,4 +259,8 @@ export async function clearVaultAuthData(): Promise<void> {
   ]);
 }
 
-export const AUTO_LOCK_LIMITS = { DEFAULT_AUTO_LOCK_MS, MIN_AUTO_LOCK_MS, MAX_AUTO_LOCK_MS };
+export const AUTO_LOCK_LIMITS = {
+  DEFAULT_AUTO_LOCK_MS,
+  MIN_AUTO_LOCK_MS,
+  MAX_AUTO_LOCK_MS,
+};

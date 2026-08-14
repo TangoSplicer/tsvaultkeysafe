@@ -15,7 +15,7 @@ export default function SettingsScreen() {
         <Section title="Privacy promise"><Card><ThemedText style={styles.copy}>TSVaultKeySafe does not require an account, send vault records to a service, or include analytics in the application flow. Your encrypted database, device-protected key, and PIN verifier stay on this device.</ThemedText></Card></Section>
         <Section title="Security design"><Card><Row label="Record protection" value="XChaCha20-Poly1305" /><Row label="Key separation" value="HKDF-SHA-256" divider /><Row label="PIN verifier" value={`PBKDF2-SHA-256 · ${PIN_WORK_FACTOR.toLocaleString()} rounds`} divider /><Row label="Cryptography format" value={`v${CRYPTOGRAPHY_VERSION}`} divider /><Row label="Vault behavior" value="Locks on background" divider /></Card></Section>
         <Section title="Important limitations"><Card><ThemedText style={styles.copy}>No mobile application can fully protect data on a compromised, rooted, jailbroken, or unlocked device. Keep your operating system current, use a device passcode, and avoid sharing your vault PIN. Clearing app data or using the permanent wipe option cannot be reversed.</ThemedText></Card></Section>
-        <Section title="About"><Card><Row label="Version" value="1.1.0" /><Row label="Storage mode" value="Offline only" divider /><Row label="License" value="MIT" divider /></Card></Section>
+        <Section title="About"><Card><Row label="Version" value="1.2.0" /><Row label="Storage mode" value="Offline only" divider /><Row label="License" value="MIT" divider /></Card></Section>
       </ScrollView>
     </ThemedView>
   );
