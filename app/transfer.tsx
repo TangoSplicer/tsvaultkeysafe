@@ -20,7 +20,9 @@ import { requireVaultDatabaseKey } from "@/lib/vault-service";
 import {
   createAndShareVaultTransfer,
   MIN_TRANSFER_PASSPHRASE_LENGTH,
+  RecoveryGuideDetails,
   selectAndImportVaultTransfer,
+  shareRecoveryGuide,
   validateTransferPassphrase,
 } from "@/lib/vault-transfer";
 
@@ -34,6 +36,8 @@ export default function TransferScreen() {
   const [exportConfirmation, setExportConfirmation] = useState("");
   const [importPassphrase, setImportPassphrase] = useState("");
   const [status, setStatus] = useState("");
+  const [recoveryGuide, setRecoveryGuide] =
+    useState<RecoveryGuideDetails | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -81,9 +85,18 @@ export default function TransferScreen() {
       setStatus("Encrypted transfer ready");
       setExportPassphrase("");
       setExportConfirmation("");
+      if (result.fileName && result.summary) {
+        setRecoveryGuide({
+          fileName: result.fileName,
+          summary: result.summary,
+        });
+      }
+      const fingerprint = result.summary?.fingerprint
+        ? `\nVerification fingerprint: ${result.summary.fingerprint}`
+        : "";
       Alert.alert(
         "Encrypted transfer ready",
-        `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} were prepared. Save the .tsvault file and keep its transfer passphrase separate from the file.`,
+        `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} were prepared. Save the .tsvault file and keep its transfer passphrase separate from the file.${fingerprint}`,
       );
     } catch (error) {
       Alert.alert(
@@ -126,9 +139,12 @@ export default function TransferScreen() {
       setStatus("Checking transfer integrity and restoring records");
       setImportPassphrase("");
       await load();
+      const fingerprint = result.summary?.fingerprint
+        ? `\nVerification fingerprint confirmed: ${result.summary.fingerprint}`
+        : "";
       Alert.alert(
         "Transfer restored",
-        `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} were verified and restored to this device.`,
+        `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} were verified and restored to this device.${fingerprint}`,
       );
       router.back();
     } catch (error) {
@@ -137,6 +153,25 @@ export default function TransferScreen() {
         error instanceof Error
           ? error.message
           : "The transfer could not be verified.",
+      );
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const shareGuide = async () => {
+    if (!recoveryGuide) return;
+    try {
+      setWorking(true);
+      setStatus("Preparing non-secret recovery guide");
+      await shareRecoveryGuide(recoveryGuide);
+      setStatus("Recovery guide ready");
+    } catch (error) {
+      Alert.alert(
+        "Unable to create recovery guide",
+        error instanceof Error
+          ? error.message
+          : "Try again while the vault remains unlocked.",
       );
     } finally {
       setWorking(false);
@@ -191,7 +226,11 @@ export default function TransferScreen() {
               <ThemedText style={styles.helper}>
                 {productCount} record{productCount === 1 ? "" : "s"} will be
                 encrypted into a .tsvault file. Use a new transfer passphrase;
-                do not reuse your 8-digit vault PIN.
+                do not reuse your 8-digit vault PIN. The Android share sheet can
+                send this ciphertext directly to a nearby device without an app
+                account. Encrypted receipt and warranty attachments remain on
+                this device in this release; export or retain those files
+                separately before moving devices.
               </ThemedText>
               <ThemedText style={styles.label}>Transfer passphrase</ThemedText>
               <TextInput
@@ -234,6 +273,36 @@ export default function TransferScreen() {
               </Pressable>
             </Card>
           </Section>
+
+          {recoveryGuide && (
+            <Section title="Offline recovery guide">
+              <Card>
+                <ThemedText style={styles.helper}>
+                  Save or print this separate guide after creating the encrypted
+                  transfer. It contains restore instructions and a verification
+                  fingerprint, but never your PIN, passphrase, master key, or
+                  readable vault records.
+                </ThemedText>
+                <ThemedText style={styles.fingerprint}>
+                  Fingerprint:{" "}
+                  {recoveryGuide.summary.fingerprint ?? "Legacy transfer"}
+                </ThemedText>
+                <Pressable
+                  disabled={working}
+                  onPress={() => void shareGuide()}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    (pressed || working) && styles.pressed,
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <ThemedText style={styles.secondaryButtonText}>
+                    Save offline recovery guide
+                  </ThemedText>
+                </Pressable>
+              </Card>
+            </Section>
+          )}
 
           <Section title="Restore on a new device">
             <Card>
@@ -358,6 +427,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#ECFDF5",
   },
   secondaryButtonText: { color: "#0F766E", fontWeight: "800" },
+  fingerprint: {
+    fontFamily: "monospace",
+    fontSize: 12,
+    color: "#0F766E",
+    marginBottom: 4,
+  },
   blockedNote: {
     marginTop: 10,
     color: "#B45309",

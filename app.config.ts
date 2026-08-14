@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "TSVaultKeySafe",
   slug: "tsvaultkeysafe",
-  version: "1.2.1",
+  version: "1.3.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "tsvaultkeysafe",
@@ -14,7 +14,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.tangosplicer.tsvaultkeysafe",
-    versionCode: 6,
+    versionCode: 7,
     adaptiveIcon: {
       backgroundColor: "#0F172A",
       foregroundImage: "./assets/images/android-icon-foreground.png",
@@ -40,6 +40,13 @@ const config: ExpoConfig = {
       {
         faceIDPermission:
           "Allow TSVaultKeySafe to unlock your encrypted vault with Face ID.",
+      },
+    ],
+    [
+      "expo-notifications",
+      {
+        icon: "./assets/images/notification-icon.png",
+        color: "#0F766E",
       },
     ],
     [

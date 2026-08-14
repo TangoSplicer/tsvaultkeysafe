@@ -1,13 +1,21 @@
-import { deriveKeys, getMasterKey } from './encryption';
-import { isVaultSessionUnlocked } from './vault-session';
+import { deriveKeys, EncryptionKeys, getMasterKey } from "./encryption";
+import { isVaultSessionUnlocked } from "./vault-session";
 
-export async function requireVaultDatabaseKey(): Promise<string> {
+export async function requireVaultKeys(): Promise<EncryptionKeys> {
   if (!isVaultSessionUnlocked()) {
-    throw new Error('Vault session is locked');
+    throw new Error("Vault session is locked");
   }
   const masterKey = await getMasterKey();
   if (!masterKey) {
-    throw new Error('Vault key is unavailable');
+    throw new Error("Vault key is unavailable");
   }
-  return (await deriveKeys(masterKey)).databaseKey;
+  return deriveKeys(masterKey);
+}
+
+export async function requireVaultDatabaseKey(): Promise<string> {
+  return (await requireVaultKeys()).databaseKey;
+}
+
+export async function requireVaultAttachmentKey(): Promise<string> {
+  return (await requireVaultKeys()).attachmentKey;
 }

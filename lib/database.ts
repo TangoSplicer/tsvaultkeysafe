@@ -1,5 +1,7 @@
 import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
+import { bytesToHex, utf8ToBytes } from "@noble/ciphers/utils";
+import { sha256 } from "@noble/hashes/sha256";
 import {
   decryptData,
   deriveExportKey,
@@ -14,6 +16,14 @@ export type ProductCategory =
   | "Template"
   | "Other";
 
+export interface VaultAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  addedAt: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -23,9 +33,12 @@ export interface Product {
   purchaseDate?: string;
   expiryDate?: string;
   renewalDate?: string;
+  warrantyExpiryDate?: string;
   notes?: string;
   category: ProductCategory;
-  attachments?: string[];
+  tags?: string[];
+  isFavorite: boolean;
+  attachments?: VaultAttachment[];
   downloadUrls?: string[];
   createdAt: string;
   updatedAt: string;
@@ -44,15 +57,51 @@ interface StoredProduct {
 
 export interface EncryptedVaultExport {
   format: "tsvaultkeysafe-encrypted-export";
+  version: 3;
+  createdAt: string;
+  recordCount: number;
+  fingerprint: string;
+  salt: string;
+  payload: EncryptedData;
+}
+
+interface LegacyEncryptedVaultExport {
+  format: "tsvaultkeysafe-encrypted-export";
   version: 2;
   createdAt: string;
   salt: string;
   payload: EncryptedData;
 }
 
+interface VaultExportManifest {
+  format: "tsvaultkeysafe-export-manifest";
+  version: 1;
+  exportedAt: string;
+  recordCount: number;
+  productDigest: string;
+}
+
+interface VaultExportPayload {
+  manifest: VaultExportManifest;
+  products: Product[];
+}
+
+export interface VaultExportSummary {
+  version: 2 | 3;
+  createdAt: string;
+  recordCount: number | null;
+  fingerprint: string | null;
+}
+
+interface DecodedVaultExport {
+  products: Product[];
+  summary: VaultExportSummary;
+}
+
 const DB_NAME = "tsvault.db";
 const MAX_PRODUCT_TEXT_LENGTH = 4_000;
 const MAX_PRODUCTS_PER_IMPORT = 10_000;
+const EXPORT_FINGERPRINT_HEX_LENGTH = 24;
 let db: SQLite.SQLiteDatabase | null = null;
 
 export async function initializeDatabase(): Promise<void> {
@@ -124,7 +173,16 @@ function sanitizeProductInput(
   const purchaseDate = trimOptional(input.purchaseDate, "Purchase date", 10);
   const expiryDate = trimOptional(input.expiryDate, "Expiry date", 10);
   const renewalDate = trimOptional(input.renewalDate, "Renewal date", 10);
-  if (![purchaseDate, expiryDate, renewalDate].every(isIsoDate)) {
+  const warrantyExpiryDate = trimOptional(
+    input.warrantyExpiryDate,
+    "Warranty expiry date",
+    10,
+  );
+  if (
+    ![purchaseDate, expiryDate, renewalDate, warrantyExpiryDate].every(
+      isIsoDate,
+    )
+  ) {
     throw new Error("Dates must use YYYY-MM-DD format");
   }
 
@@ -140,12 +198,34 @@ function sanitizeProductInput(
     purchaseDate,
     expiryDate,
     renewalDate,
+    warrantyExpiryDate,
     notes: trimOptional(input.notes, "Notes"),
     category: input.category,
+    tags: Array.isArray(input.tags)
+      ? Array.from(
+          new Set(
+            input.tags
+              .filter((item): item is string => typeof item === "string")
+              .map((item) => item.trim().toLocaleLowerCase())
+              .filter((item) => item.length > 0 && item.length <= 32),
+          ),
+        ).slice(0, 24)
+      : undefined,
+    isFavorite: Boolean(input.isFavorite),
     attachments: Array.isArray(input.attachments)
       ? input.attachments
-          .filter((item): item is string => typeof item === "string")
-          .slice(0, 32)
+          .filter((item): item is VaultAttachment =>
+            Boolean(
+              item &&
+                typeof item === "object" &&
+                typeof (item as VaultAttachment).id === "string" &&
+                typeof (item as VaultAttachment).name === "string" &&
+                typeof (item as VaultAttachment).mimeType === "string" &&
+                Number.isFinite((item as VaultAttachment).size) &&
+                typeof (item as VaultAttachment).addedAt === "string",
+            ),
+          )
+          .slice(0, 12)
       : undefined,
     downloadUrls: Array.isArray(input.downloadUrls)
       ? input.downloadUrls
@@ -318,6 +398,113 @@ export async function getExpiringProducts(
   });
 }
 
+function productDigest(products: Product[]): string {
+  return bytesToHex(sha256(utf8ToBytes(JSON.stringify(products))));
+}
+
+function exportFingerprint(digest: string): string {
+  return digest.slice(0, EXPORT_FINGERPRINT_HEX_LENGTH).toUpperCase();
+}
+
+function assertProducts(value: unknown): Product[] {
+  if (!Array.isArray(value) || value.length > MAX_PRODUCTS_PER_IMPORT) {
+    throw new Error("Export has an invalid number of products");
+  }
+  if (value.some((product) => !product || typeof product !== "object")) {
+    throw new Error("Export contains an invalid product");
+  }
+  return value as Product[];
+}
+
+function parseExportBundle(
+  serializedExport: string,
+): EncryptedVaultExport | LegacyEncryptedVaultExport {
+  const parsed = JSON.parse(serializedExport) as Record<string, unknown>;
+  if (
+    parsed.format !== "tsvaultkeysafe-encrypted-export" ||
+    (parsed.version !== 2 && parsed.version !== 3) ||
+    typeof parsed.createdAt !== "string" ||
+    typeof parsed.salt !== "string" ||
+    !parsed.payload
+  ) {
+    throw new Error("Invalid encrypted export file");
+  }
+  return parsed as unknown as EncryptedVaultExport | LegacyEncryptedVaultExport;
+}
+
+function summaryForExport(
+  bundle: EncryptedVaultExport | LegacyEncryptedVaultExport,
+): VaultExportSummary {
+  if (bundle.version === 2) {
+    return {
+      version: 2,
+      createdAt: bundle.createdAt,
+      recordCount: null,
+      fingerprint: null,
+    };
+  }
+  if (
+    !Number.isInteger(bundle.recordCount) ||
+    bundle.recordCount < 0 ||
+    bundle.recordCount > MAX_PRODUCTS_PER_IMPORT ||
+    !/^[0-9A-F]{24}$/.test(bundle.fingerprint)
+  ) {
+    throw new Error("Export verification metadata is invalid");
+  }
+  return {
+    version: 3,
+    createdAt: bundle.createdAt,
+    recordCount: bundle.recordCount,
+    fingerprint: bundle.fingerprint,
+  };
+}
+
+async function decodeEncryptedExport(
+  serializedExport: string,
+  passphrase: string,
+): Promise<DecodedVaultExport> {
+  const bundle = parseExportBundle(serializedExport);
+  const summary = summaryForExport(bundle);
+  const { key } = await deriveExportKey(passphrase, bundle.salt);
+  const additionalData =
+    bundle.version === 3
+      ? "tsvaultkeysafe-export-v3"
+      : "tsvaultkeysafe-export-v2";
+  const plaintext = await decryptData(bundle.payload, key, additionalData);
+
+  if (bundle.version === 2) {
+    return {
+      products: assertProducts(JSON.parse(plaintext)),
+      summary,
+    };
+  }
+
+  const decryptedPayload = JSON.parse(plaintext) as VaultExportPayload;
+  const products = assertProducts(decryptedPayload.products);
+  const { manifest } = decryptedPayload;
+  const digest = productDigest(products);
+  if (
+    !manifest ||
+    manifest.format !== "tsvaultkeysafe-export-manifest" ||
+    manifest.version !== 1 ||
+    manifest.exportedAt !== bundle.createdAt ||
+    manifest.recordCount !== products.length ||
+    manifest.productDigest !== digest ||
+    summary.recordCount !== products.length ||
+    summary.fingerprint !== exportFingerprint(digest)
+  ) {
+    throw new Error("The encrypted export integrity check failed");
+  }
+  return { products, summary };
+}
+
+/** Reads non-secret summary metadata for a transfer file before the owner chooses to import it. */
+export function getEncryptedExportSummary(
+  serializedExport: string,
+): VaultExportSummary {
+  return summaryForExport(parseExportBundle(serializedExport));
+}
+
 /** Creates a passphrase-protected export rather than exposing records as plaintext JSON or CSV. */
 export async function createEncryptedExport(
   encryptionKey: string,
@@ -326,20 +513,41 @@ export async function createEncryptedExport(
   if (passphrase.length < 12)
     throw new Error("Use an export passphrase of at least 12 characters");
   const products = await getAllProducts(encryptionKey);
+  const createdAt = new Date().toISOString();
+  const digest = productDigest(products);
+  const exportPayload: VaultExportPayload = {
+    manifest: {
+      format: "tsvaultkeysafe-export-manifest",
+      version: 1,
+      exportedAt: createdAt,
+      recordCount: products.length,
+      productDigest: digest,
+    },
+    products,
+  };
   const { key, salt } = await deriveExportKey(passphrase);
   const payload = await encryptData(
-    JSON.stringify(products),
+    JSON.stringify(exportPayload),
     key,
-    "tsvaultkeysafe-export-v2",
+    "tsvaultkeysafe-export-v3",
   );
   const exportBundle: EncryptedVaultExport = {
     format: "tsvaultkeysafe-encrypted-export",
-    version: 2,
-    createdAt: new Date().toISOString(),
+    version: 3,
+    createdAt,
+    recordCount: products.length,
+    fingerprint: exportFingerprint(digest),
     salt,
     payload,
   };
   return JSON.stringify(exportBundle);
+}
+
+export async function inspectEncryptedExport(
+  serializedExport: string,
+  passphrase: string,
+): Promise<VaultExportSummary> {
+  return (await decodeEncryptedExport(serializedExport, passphrase)).summary;
 }
 
 export async function importEncryptedExport(
@@ -347,34 +555,20 @@ export async function importEncryptedExport(
   passphrase: string,
   encryptionKey: string,
 ): Promise<number> {
-  const parsed = JSON.parse(serializedExport) as EncryptedVaultExport;
-  if (
-    parsed.format !== "tsvaultkeysafe-encrypted-export" ||
-    parsed.version !== 2 ||
-    !parsed.salt ||
-    !parsed.payload
-  ) {
-    throw new Error("Invalid encrypted export file");
-  }
-  const { key } = await deriveExportKey(passphrase, parsed.salt);
-  const products = JSON.parse(
-    await decryptData(parsed.payload, key, "tsvaultkeysafe-export-v2"),
-  ) as unknown;
-  if (!Array.isArray(products) || products.length > MAX_PRODUCTS_PER_IMPORT) {
-    throw new Error("Export has an invalid number of products");
-  }
+  const { products } = await decodeEncryptedExport(
+    serializedExport,
+    passphrase,
+  );
 
   let imported = 0;
   await getDb().withTransactionAsync(async () => {
     for (const product of products) {
-      if (!product || typeof product !== "object")
-        throw new Error("Export contains an invalid product");
       const {
         id: _id,
         createdAt: _createdAt,
         updatedAt: _updatedAt,
         ...input
-      } = product as Product;
+      } = product;
       await createProduct(input, encryptionKey);
       imported += 1;
     }
@@ -394,4 +588,32 @@ export async function getDatabaseStats(): Promise<{
     "SELECT COUNT(*) as count FROM products",
   );
   return { productCount: result?.count ?? 0, totalSize: 0 };
+}
+
+export interface VaultHealthReport {
+  productCount: number;
+  databaseIntegrity: "ok";
+  recordIntegrity: "ok";
+  checkedAt: string;
+}
+
+/** Performs a local SQLite quick check and authenticated read of every encrypted record. */
+export async function runVaultHealthCheck(
+  encryptionKey: string,
+): Promise<VaultHealthReport> {
+  const quickCheck = await getDb().getFirstAsync<{ quick_check: string }>(
+    "PRAGMA quick_check",
+  );
+  if (quickCheck?.quick_check !== "ok") {
+    throw new Error(
+      "The local SQLite integrity check did not complete successfully.",
+    );
+  }
+  const products = await getAllProducts(encryptionKey);
+  return {
+    productCount: products.length,
+    databaseIntegrity: "ok",
+    recordIntegrity: "ok",
+    checkedAt: new Date().toISOString(),
+  };
 }

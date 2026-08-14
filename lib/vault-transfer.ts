@@ -2,7 +2,12 @@ import * as DocumentPicker from "expo-document-picker";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 
-import { createEncryptedExport, importEncryptedExport } from "./database";
+import {
+  createEncryptedExport,
+  getEncryptedExportSummary,
+  importEncryptedExport,
+  VaultExportSummary,
+} from "./database";
 
 export const VAULT_TRANSFER_EXTENSION = ".tsvault";
 export const VAULT_TRANSFER_MIME_TYPE =
@@ -13,6 +18,68 @@ const MAX_TRANSFER_FILE_BYTES = 64 * 1024 * 1024;
 export interface VaultTransferResult {
   recordCount: number;
   fileName?: string;
+  summary?: VaultExportSummary;
+}
+
+export interface RecoveryGuideDetails {
+  fileName: string;
+  summary: VaultExportSummary;
+}
+
+export function createRecoveryGuide({
+  fileName,
+  summary,
+}: RecoveryGuideDetails): string {
+  const recordDescription =
+    summary.recordCount === null
+      ? "Record count is not available for this legacy transfer format."
+      : `${summary.recordCount} encrypted vault record${summary.recordCount === 1 ? "" : "s"} are included.`;
+  const fingerprintDescription = summary.fingerprint
+    ? `Verification fingerprint: ${summary.fingerprint}`
+    : "No transfer fingerprint is available for this legacy transfer format.";
+
+  return [
+    "TSVaultKeySafe offline recovery guide",
+    "",
+    "This guide contains no PIN, passphrase, master key, or readable vault record.",
+    "Keep it separately from the encrypted .tsvault transfer file.",
+    "",
+    `Transfer file: ${fileName}`,
+    `Created: ${summary.createdAt}`,
+    `Format: v${summary.version}`,
+    recordDescription,
+    fingerprintDescription,
+    "",
+    "To restore on a new device:",
+    "1. Install TSVaultKeySafe and create a new local vault PIN.",
+    "2. Unlock the new, empty vault and open Security > Transfer vault.",
+    "3. Select the encrypted .tsvault file and enter its separate transfer passphrase.",
+    "4. Confirm the record count and verification fingerprint after import.",
+    "5. After confirming records, delete temporary transfer copies you no longer need.",
+    "",
+    "TSVaultKeySafe never stores this transfer, its passphrase, or a recovery key on a service.",
+  ].join("\n");
+}
+
+export async function shareRecoveryGuide(
+  details: RecoveryGuideDetails,
+): Promise<void> {
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error("Secure file sharing is not available on this device.");
+  }
+  const fileName = `${details.fileName.replace(/\.tsvault$/i, "")}-recovery-guide.txt`;
+  const guideFile = new File(Paths.cache, fileName);
+  if (guideFile.exists) guideFile.delete();
+  try {
+    guideFile.create();
+    guideFile.write(createRecoveryGuide(details));
+    await Sharing.shareAsync(guideFile.uri, {
+      dialogTitle: "Save TSVaultKeySafe recovery guide",
+      mimeType: "text/plain",
+    });
+  } finally {
+    if (guideFile.exists) guideFile.delete();
+  }
 }
 
 export function validateTransferPassphrase(passphrase: string): boolean {
@@ -52,13 +119,14 @@ export async function createAndShareVaultTransfer(
 
   try {
     const encryptedTransfer = await createEncryptedExport(vaultKey, passphrase);
+    const summary = getEncryptedExportSummary(encryptedTransfer);
     transferFile.create();
     transferFile.write(encryptedTransfer);
     await Sharing.shareAsync(transferFile.uri, {
       dialogTitle: "Save encrypted TSVaultKeySafe transfer",
       mimeType: VAULT_TRANSFER_MIME_TYPE,
     });
-    return { recordCount, fileName };
+    return { recordCount, fileName, summary };
   } finally {
     if (transferFile.exists) transferFile.delete();
   }
@@ -93,10 +161,14 @@ export async function selectAndImportVaultTransfer(
     throw new Error("The selected transfer file is too large.");
   }
 
+  const summary = getEncryptedExportSummary(serializedTransfer);
   const recordCount = await importEncryptedExport(
     serializedTransfer,
     passphrase,
     vaultKey,
   );
-  return { recordCount };
+  if (summary.recordCount !== null && summary.recordCount !== recordCount) {
+    throw new Error("Transfer record-count verification failed");
+  }
+  return { recordCount, summary };
 }

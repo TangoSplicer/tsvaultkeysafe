@@ -1,7 +1,7 @@
 # Privacy Policy
 
-**Last Updated:** January 2024  
-**Effective Date:** January 2024
+**Last Updated:** August 2026
+**Effective Date:** August 2026
 
 ---
 
@@ -33,10 +33,10 @@ TSVaultKeySafe does not collect, store, or transmit any personal information abo
 All data in TSVaultKeySafe is stored **exclusively on your device**:
 
 - **Local Storage:** Products and vault data are stored in an encrypted SQLite database on your device
-- **Encryption:** All data is encrypted with AES-256-GCM encryption
-- **No Cloud Sync:** Your data never leaves your device
-- **No Backup:** We do not back up your data to cloud services
-- **No Transmission:** Your data is never transmitted to any external server
+- **Encryption:** Product records and managed attachments use authenticated XChaCha20-Poly1305 encryption with purpose-separated local keys
+- **No Cloud Sync:** Your data never leaves the device unless you explicitly choose to share an already encrypted transfer file
+- **No Service Backup:** We do not back up your data to cloud services or operate a backup service
+- **No Server Transmission:** TSVaultKeySafe does not transmit vault data to an external server
 
 ---
 
@@ -44,14 +44,14 @@ All data in TSVaultKeySafe is stored **exclusively on your device**:
 
 ### Encryption
 
-- **Algorithm:** AES-256-GCM (military-grade encryption)
+- **Algorithm:** XChaCha20-Poly1305 authenticated encryption for records, attachments, and transfer payloads
 - **Key Storage:** Master encryption keys are stored in your device's secure keystore (Android Keystore / iOS Keychain)
-- **At Rest:** All data is encrypted when stored on your device
-- **In Transit:** N/A (data never leaves your device)
+- **At Rest:** Managed product records and attachments are encrypted on device
+- **Transfer:** A separately passphrase-protected ciphertext file may be shared only when you explicitly choose an operating-system share destination
 
 ### Authentication
 
-- **PIN Protection:** Your vault is protected with a 6-digit PIN
+- **PIN Protection:** Your vault is protected with an eight-digit PIN verifier hardened with PBKDF2-HMAC-SHA-256
 - **Biometric Authentication:** Optional Face ID or Fingerprint authentication
 - **Rate Limiting:** Failed PIN attempts are rate-limited to prevent brute force attacks
 - **Auto-Lock:** Your vault automatically locks when the app goes to background
@@ -83,21 +83,21 @@ TSVaultKeySafe requests only the minimum necessary permissions:
 
 ### Android Permissions
 
-- `INTERNET` — For optional app updates (can be disabled)
-- `POST_NOTIFICATIONS` — For optional expiry reminders
+- `POST_NOTIFICATIONS` — Only if you opt in to generic local renewal, expiry, or warranty reminders. Notification text does not include product, vendor, licence, PIN, or secret details.
 
 ### iOS Permissions
 
 - `NSFaceIDUsageDescription` — For optional Face ID authentication
-- `NSLocalNetworkUsageDescription` — Not used; included by Expo framework
+- Local network, nearby-device, and Bluetooth permissions are not requested for the encrypted file-transfer workflow.
 
 **Note:** We do NOT request permissions for:
+
 - Location (GPS)
 - Contacts
 - Calendar
 - Photos
 - Microphone
-- Camera (unless you enable QR scanner feature)
+- Camera
 
 ---
 
@@ -108,7 +108,7 @@ You have full control over your data:
 ### Access
 
 - You can view all your vault data within the app
-- You can export your data in multiple formats (JSON, CSV, PDF)
+- You can create a `.tsvault` encrypted transfer file and a separate non-secret recovery guide
 
 ### Modification
 
@@ -123,9 +123,9 @@ You have full control over your data:
 
 ### Portability
 
-- You can export your vault as encrypted ZIP, PDF, or CSV
-- You can import your vault from a backup
-- You can switch to another app and take your data with you
+- You can export your vault as a separately passphrase-protected `.tsvault` ciphertext file
+- You can import a verified `.tsvault` transfer into a newly created, empty vault on another device
+- You choose where an encrypted transfer is stored or shared; we do not operate a transfer relay or recovery service
 
 ---
 
@@ -149,12 +149,12 @@ TSVaultKeySafe is not intended for children under 13. We do not knowingly collec
 
 We implement industry-standard security practices:
 
-- **Encryption:** AES-256-GCM encryption for all data
-- **Key Management:** Secure key storage in platform keystore
-- **Authentication:** PIN and biometric protection
-- **Rate Limiting:** Protection against brute force attacks
-- **Secure Deletion:** Cryptographic erasure of deleted data
-- **Memory Hygiene:** Sensitive data cleared from memory
+- **Encryption:** XChaCha20-Poly1305 authenticated encryption for managed records, attachments, and transfers
+- **Key Management:** Secure key storage in the platform keystore with purpose-separated derived keys
+- **Authentication:** Eight-digit PIN protection and optional biometric unlock
+- **Rate Limiting:** Progressive temporary lockouts after failed PIN attempts
+- **Removal:** The app removes managed records and attachment ciphertext when you delete or permanently wipe a vault; underlying storage media may retain data according to the operating system and filesystem
+- **Memory Hygiene:** The active-session guard is cleared when the app leaves the foreground
 
 However, no security system is perfect. We encourage you to:
 
@@ -269,9 +269,9 @@ This Privacy Policy is inspired by privacy-first principles and best practices f
 
 ## Version History
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0 | January 2024 | Initial privacy policy |
+| Version | Date         | Changes                |
+| ------- | ------------ | ---------------------- |
+| 1.0     | January 2024 | Initial privacy policy |
 
 ---
 

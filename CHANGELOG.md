@@ -6,11 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.3.0] — 2026-08-14
+
+### Added
+
+- **Owner-controlled continuity:** Encrypted `.tsvault` exports now use a versioned authenticated manifest containing a protected record count and verification fingerprint. Imports validate the authenticated payload, count, and fingerprint before records are committed.
+- **Offline recovery guide:** Owners can save or print a separate recovery guide that contains transfer instructions and a verification fingerprint, but never a PIN, transfer passphrase, master key, or readable record.
+- **Secure attachment vault:** Receipts and warranty files can be selected through the operating-system picker, encrypted with the purpose-separated attachment key, and stored as ciphertext in private app storage. The interface enforces a 12-file-per-record limit and an 8 MB-per-file limit.
+- **Local organization:** Products support favourites, tags, warranty-expiry dates, encrypted attachment references, local tag search, and favourite-first ordering.
+- **Generic local reminders:** The owner can opt in to device-scheduled reminders for renewal, expiry, and warranty dates. Notifications contain no product, vendor, licence, PIN, or secret; no push token or remote notification service is used.
+- **Vault health check:** Security settings can run a local SQLite quick check and authenticated read of every encrypted record without exposing records or communicating with a service.
+- **Direct nearby-device workflow:** The transfer screen explains use of the Android system share sheet to send an already encrypted transfer file to a nearby device. TSVaultKeySafe does not request broad nearby-device, location, or Bluetooth permissions.
+
+### Changed
+
+- Product deletion and permanent vault wipe now remove associated encrypted attachment ciphertext.
+- The transfer screen displays an import/export verification fingerprint after successful authenticated processing.
+- Security and About screens now describe the local reminder, recovery, attachment, and health-check boundaries accurately.
+
+### Privacy boundary
+
+- This release adds no account, analytics, cloud vault, remote key escrow, automatic sync, push token, or server-side recovery capability.
+- The owner chooses where an already encrypted transfer file or non-secret recovery guide is saved or shared.
+
+---
+
 ## [1.0.0] — 2024-01-15
 
 ### Added
 
 #### Core Features
+
 - Vault home screen with product list and search functionality
 - Product CRUD operations (Create, Read, Update, Delete)
 - Product metadata storage (name, vendor, license key, expiry date, notes)
@@ -19,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Product search and filtering by name, vendor, or license key
 
 #### Security Features
+
 - PIN-based vault protection (6-digit numeric PIN)
 - Biometric authentication support (Face ID / Fingerprint)
 - Rate limiting for failed PIN attempts (3 attempts → 30-second lockout)
@@ -28,6 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Secure deletion of products with cryptographic erasure
 
 #### Encryption & Storage
+
 - AES-256-GCM encryption for all data at rest
 - HKDF key derivation for database keys
 - PBKDF2 PIN hashing (100,000 iterations)
@@ -36,6 +64,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Secure memory hygiene (clearing sensitive data after use)
 
 #### User Interface
+
 - Three-tab navigation (Vault, Security, Settings)
 - Security settings screen with encryption status and biometric management
 - Settings screen with app information and legal links
@@ -46,6 +75,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Responsive design for all screen sizes
 
 #### Documentation
+
 - Comprehensive README with project overview
 - Threat Model (STRIDE analysis)
 - Encryption Design document
@@ -59,6 +89,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Technical Details
 
 #### Technology Stack
+
 - React Native 0.81 with Expo SDK 54
 - TypeScript 5.9 for type safety
 - Expo Router 6 for navigation
@@ -70,6 +101,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - @react-native-async-storage/async-storage for local storage
 
 #### Dependencies
+
 - 50+ production dependencies
 - Comprehensive error handling
 - Platform-specific implementations (Android/iOS)
@@ -122,6 +154,7 @@ Not applicable (initial release)
 ### Planned Features
 
 #### Advanced Features
+
 - QR code scanner for license card capture
 - Bulk CSV import functionality
 - Expiry reminders with local notifications
@@ -133,6 +166,7 @@ Not applicable (initial release)
 - Custom product categories
 
 #### Improvements
+
 - Product detail screen with full metadata editing
 - Add/Edit product modal with validation
 - Advanced search filters (category, expiry range, vendor)
@@ -145,11 +179,13 @@ Not applicable (initial release)
 - Optional encrypted cloud sync (user-controlled)
 
 #### Performance
+
 - Bundle size optimization
 - Runtime performance improvements
 - Memory usage optimization
 
 #### Testing
+
 - Expanded unit test coverage
 - Integration test suite
 - E2E testing framework

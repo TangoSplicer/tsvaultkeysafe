@@ -61,11 +61,19 @@ export default function VaultScreen() {
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return products;
-    return products.filter((product) =>
-      [product.name, product.vendor, product.licenseKey, product.category].some(
-        (value) => value.toLocaleLowerCase().includes(normalized),
-      ),
+    const matching = !normalized
+      ? products
+      : products.filter((product) =>
+          [
+            product.name,
+            product.vendor,
+            product.licenseKey,
+            product.category,
+            ...(product.tags ?? []),
+          ].some((value) => value.toLocaleLowerCase().includes(normalized)),
+        );
+    return [...matching].sort(
+      (left, right) => Number(right.isFavorite) - Number(left.isFavorite),
     );
   }, [products, query]);
 
@@ -220,6 +228,7 @@ function ProductCard({
       <View style={styles.cardTop}>
         <View style={styles.cardTitle}>
           <ThemedText type="defaultSemiBold" numberOfLines={1}>
+            {product.isFavorite ? "★ " : ""}
             {product.name}
           </ThemedText>
           <ThemedText style={styles.vendor} numberOfLines={1}>
@@ -232,6 +241,11 @@ function ProductCard({
           </ThemedText>
         </View>
       </View>
+      {(product.tags?.length ?? 0) > 0 && (
+        <ThemedText style={styles.tags} numberOfLines={1}>
+          {(product.tags ?? []).map((tag) => `#${tag}`).join(" · ")}
+        </ThemedText>
+      )}
       <View style={styles.actions}>
         <Pressable onPress={onCopy} style={styles.secondaryAction}>
           <ThemedText style={styles.secondaryActionText}>Copy key</ThemedText>
@@ -362,6 +376,7 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   cardTitle: { flex: 1 },
   vendor: { fontSize: 13, opacity: 0.63, marginTop: 4 },
+  tags: { fontSize: 11, color: "#0F766E", marginTop: 10, fontWeight: "700" },
   badge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
   badgeText: { fontSize: 11, fontWeight: "800" },
   actions: { flexDirection: "row", gap: 10, marginTop: 16 },

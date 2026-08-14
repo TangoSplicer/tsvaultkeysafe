@@ -8,6 +8,7 @@ const VAULT_LAST_UNLOCK_KEY = "tsvault.last-unlock.v2";
 const VAULT_AUTO_LOCK_TIMEOUT_KEY = "tsvault.auto-lock-timeout.v2";
 const VAULT_FAILED_ATTEMPTS_KEY = "tsvault.failed-attempts.v2";
 const VAULT_LOCKOUT_TIME_KEY = "tsvault.lockout-until.v2";
+const VAULT_LOCAL_REMINDERS_ENABLED_KEY = "tsvault.local-reminders-enabled.v1";
 const KEYCHAIN_SERVICE = "com.tsvaultkeysafe.authentication";
 const DEFAULT_AUTO_LOCK_MS = 60_000;
 const MIN_AUTO_LOCK_MS = 15_000;
@@ -183,6 +184,25 @@ export async function shouldVaultAutoLock(): Promise<boolean> {
   return lastUnlock === 0 || Date.now() - lastUnlock >= timeout;
 }
 
+export async function isVaultLocalRemindersEnabled(): Promise<boolean> {
+  return (
+    (await SecureStore.getItemAsync(
+      VAULT_LOCAL_REMINDERS_ENABLED_KEY,
+      options(),
+    )) === "true"
+  );
+}
+
+export async function setVaultLocalRemindersEnabled(
+  enabled: boolean,
+): Promise<void> {
+  await SecureStore.setItemAsync(
+    VAULT_LOCAL_REMINDERS_ENABLED_KEY,
+    enabled ? "true" : "false",
+    options(),
+  );
+}
+
 export async function getVaultAutoLockTimeout(): Promise<number> {
   const timeout = await getNumber(VAULT_AUTO_LOCK_TIMEOUT_KEY);
   return timeout || DEFAULT_AUTO_LOCK_MS;
@@ -254,6 +274,7 @@ export async function clearVaultAuthData(): Promise<void> {
     SecureStore.deleteItemAsync(VAULT_BIOMETRIC_ENABLED_KEY, options()),
     SecureStore.deleteItemAsync(VAULT_LAST_UNLOCK_KEY, options()),
     SecureStore.deleteItemAsync(VAULT_AUTO_LOCK_TIMEOUT_KEY, options()),
+    SecureStore.deleteItemAsync(VAULT_LOCAL_REMINDERS_ENABLED_KEY, options()),
     SecureStore.deleteItemAsync(VAULT_FAILED_ATTEMPTS_KEY, options()),
     SecureStore.deleteItemAsync(VAULT_LOCKOUT_TIME_KEY, options()),
   ]);

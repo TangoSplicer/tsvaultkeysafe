@@ -13,7 +13,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { clearAllProducts, getDatabaseStats } from "@/lib/database";
+import {
+  clearAllProducts,
+  getAllProducts,
+  getDatabaseStats,
+  runVaultHealthCheck,
+} from "@/lib/database";
 import { wipeEncryptionData } from "@/lib/encryption";
 import {
   AUTO_LOCK_LIMITS,
@@ -22,8 +27,17 @@ import {
   enableVaultBiometric,
   getVaultAutoLockTimeout,
   getVaultAuthState,
+  isVaultLocalRemindersEnabled,
   setVaultAutoLockTimeout,
+  setVaultLocalRemindersEnabled,
 } from "@/lib/vault-auth";
+import {
+  cancelLocalVaultReminders,
+  getLocalVaultReminderCount,
+  scheduleLocalVaultReminders,
+} from "@/lib/local-reminders";
+import { requireVaultDatabaseKey } from "@/lib/vault-service";
+import { clearEncryptedAttachments } from "@/lib/vault-attachments";
 import { endVaultSession } from "@/lib/vault-session";
 
 const lockOptions = [
@@ -44,20 +58,29 @@ export default function SecurityScreen() {
   const [autoLock, setAutoLock] = useState(
     AUTO_LOCK_LIMITS.DEFAULT_AUTO_LOCK_MS,
   );
+  const [localRemindersEnabled, setLocalRemindersEnabled] = useState(false);
+  const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
+  const [healthStatus, setHealthStatus] = useState<string | null>(null);
+  const [checkingHealth, setCheckingHealth] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [state, stats, timeout] = await Promise.all([
-        getVaultAuthState(),
-        getDatabaseStats(),
-        getVaultAutoLockTimeout(),
-      ]);
+      const [state, stats, timeout, remindersEnabled, reminderCount] =
+        await Promise.all([
+          getVaultAuthState(),
+          getDatabaseStats(),
+          getVaultAutoLockTimeout(),
+          isVaultLocalRemindersEnabled(),
+          getLocalVaultReminderCount(),
+        ]);
       setPinSet(state.isPinSet);
       setBiometricAvailable(state.isBiometricAvailable);
       setBiometricEnabled(state.isBiometricEnabled);
       setProductCount(stats.productCount);
       setAutoLock(timeout);
+      setLocalRemindersEnabled(remindersEnabled);
+      setScheduledReminderCount(reminderCount);
     } catch {
       router.replace("/unlock");
     } finally {
@@ -91,6 +114,52 @@ export default function SecurityScreen() {
     }
   };
 
+  const toggleLocalReminders = async (enabled: boolean) => {
+    try {
+      if (enabled) {
+        const key = await requireVaultDatabaseKey();
+        const products = await getAllProducts(key);
+        const count = await scheduleLocalVaultReminders(products);
+        await setVaultLocalRemindersEnabled(true);
+        setScheduledReminderCount(count);
+      } else {
+        await cancelLocalVaultReminders();
+        await setVaultLocalRemindersEnabled(false);
+        setScheduledReminderCount(0);
+      }
+      setLocalRemindersEnabled(enabled);
+    } catch (error) {
+      Alert.alert(
+        "Unable to update local reminders",
+        error instanceof Error
+          ? error.message
+          : "Try again while the vault remains unlocked.",
+      );
+    }
+  };
+
+  const checkVaultHealth = async () => {
+    try {
+      setCheckingHealth(true);
+      setHealthStatus("Checking SQLite and encrypted records on this device…");
+      const key = await requireVaultDatabaseKey();
+      const report = await runVaultHealthCheck(key);
+      setHealthStatus(
+        `${report.productCount} encrypted record${report.productCount === 1 ? "" : "s"} verified locally at ${new Date(report.checkedAt).toLocaleTimeString()}.`,
+      );
+    } catch (error) {
+      setHealthStatus(null);
+      Alert.alert(
+        "Vault health needs attention",
+        error instanceof Error
+          ? error.message
+          : "The local integrity check could not complete.",
+      );
+    } finally {
+      setCheckingHealth(false);
+    }
+  };
+
   const lockNow = () => {
     endVaultSession();
     router.replace("/unlock");
@@ -111,6 +180,7 @@ export default function SecurityScreen() {
           style: "destructive",
           onPress: async () => {
             try {
+              clearEncryptedAttachments();
               await clearAllProducts();
               await clearVaultAuthData();
               await wipeEncryptionData();
@@ -225,6 +295,61 @@ export default function SecurityScreen() {
                 </Pressable>
               ))}
             </View>
+          </Card>
+        </Section>
+        <Section title="Private local reminders">
+          <Card>
+            <View style={styles.row}>
+              <View style={styles.reminderCopy}>
+                <ThemedText style={styles.rowLabel}>
+                  Upcoming date reminders
+                </ThemedText>
+                <ThemedText style={styles.helperInline}>
+                  The phone schedules generic local alerts 30 and 7 days before
+                  a renewal, expiry, or warranty date. Alerts never show product
+                  names, vendors, or licence details.
+                </ThemedText>
+              </View>
+              <Switch
+                value={localRemindersEnabled}
+                onValueChange={(value) => void toggleLocalReminders(value)}
+                trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
+              />
+            </View>
+            <StatusRow
+              label="Scheduled on this device"
+              value={`${scheduledReminderCount} generic alert${scheduledReminderCount === 1 ? "" : "s"}`}
+              active={localRemindersEnabled}
+              divider
+            />
+          </Card>
+        </Section>
+        <Section title="Vault health">
+          <Card>
+            <ThemedText style={styles.helper}>
+              Check the local SQLite structure and authenticate-read every
+              encrypted record. Nothing leaves this device.
+            </ThemedText>
+            {healthStatus && (
+              <ThemedText style={styles.healthStatus}>
+                {healthStatus}
+              </ThemedText>
+            )}
+            <Pressable
+              disabled={checkingHealth}
+              onPress={() => void checkVaultHealth()}
+              style={({ pressed }) => [
+                styles.healthButton,
+                (pressed || checkingHealth) && styles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <ThemedText style={styles.healthButtonText}>
+                {checkingHealth
+                  ? "Checking vault…"
+                  : "Run local vault health check"}
+              </ThemedText>
+            </Pressable>
           </Card>
         </Section>
         <Section title="Vault management">
@@ -349,6 +474,23 @@ const styles = StyleSheet.create({
     padding: 15,
     paddingBottom: 4,
   },
+  reminderCopy: { flex: 1, paddingRight: 4 },
+  helperInline: { fontSize: 12, lineHeight: 17, opacity: 0.64, marginTop: 4 },
+  healthStatus: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#0F766E",
+    paddingHorizontal: 15,
+    paddingTop: 10,
+  },
+  healthButton: {
+    margin: 15,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: 11,
+    backgroundColor: "#CCFBF1",
+  },
+  healthButtonText: { color: "#0F766E", fontWeight: "800" },
   optionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, padding: 15 },
   option: {
     minWidth: "45%",
