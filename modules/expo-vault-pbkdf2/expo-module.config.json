@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["expo.modules.vaultpbkdf2.ExpoVaultPbkdf2Module"]
+  }
+}
