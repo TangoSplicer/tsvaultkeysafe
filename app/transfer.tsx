@@ -16,7 +16,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { getDatabaseStats } from "@/lib/database";
-import { requireVaultDatabaseKey } from "@/lib/vault-service";
+import {
+  requireVaultAttachmentKey,
+  requireVaultDatabaseKey,
+} from "@/lib/vault-service";
 import {
   createAndShareVaultTransfer,
   MIN_TRANSFER_PASSPHRASE_LENGTH,
@@ -74,11 +77,15 @@ export default function TransferScreen() {
     try {
       setWorking(true);
       setStatus("Requiring an active secure session");
-      const key = await requireVaultDatabaseKey();
-      setStatus("Encrypting vault records for transfer");
+      const [key, attachmentKey] = await Promise.all([
+        requireVaultDatabaseKey(),
+        requireVaultAttachmentKey(),
+      ]);
+      setStatus("Encrypting vault records and attachments for transfer");
       await new Promise((resolve) => requestAnimationFrame(resolve));
       const result = await createAndShareVaultTransfer(
         key,
+        attachmentKey,
         exportPassphrase,
         productCount,
       );
@@ -94,9 +101,10 @@ export default function TransferScreen() {
       const fingerprint = result.summary?.fingerprint
         ? `\nVerification fingerprint: ${result.summary.fingerprint}`
         : "";
+      const attachmentCount = result.summary?.attachmentCount ?? 0;
       Alert.alert(
         "Encrypted transfer ready",
-        `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} were prepared. Save the .tsvault file and keep its transfer passphrase separate from the file.${fingerprint}`,
+        `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} and ${attachmentCount} encrypted attachment${attachmentCount === 1 ? "" : "s"} were prepared. Save the .tsvault file and keep its transfer passphrase separate from the file.${fingerprint}`,
       );
     } catch (error) {
       Alert.alert(
@@ -129,9 +137,16 @@ export default function TransferScreen() {
     try {
       setWorking(true);
       setStatus("Requiring an active secure session");
-      const key = await requireVaultDatabaseKey();
+      const [key, attachmentKey] = await Promise.all([
+        requireVaultDatabaseKey(),
+        requireVaultAttachmentKey(),
+      ]);
       setStatus("Choose your encrypted transfer file");
-      const result = await selectAndImportVaultTransfer(key, importPassphrase);
+      const result = await selectAndImportVaultTransfer(
+        key,
+        attachmentKey,
+        importPassphrase,
+      );
       if (!result) {
         setStatus("Import cancelled");
         return;
@@ -142,9 +157,10 @@ export default function TransferScreen() {
       const fingerprint = result.summary?.fingerprint
         ? `\nVerification fingerprint confirmed: ${result.summary.fingerprint}`
         : "";
+      const attachmentCount = result.summary?.attachmentCount ?? 0;
       Alert.alert(
         "Transfer restored",
-        `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} were verified and restored to this device.${fingerprint}`,
+        `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} and ${attachmentCount} encrypted attachment${attachmentCount === 1 ? "" : "s"} were verified and restored to this device.${fingerprint}`,
       );
       router.back();
     } catch (error) {
@@ -228,9 +244,9 @@ export default function TransferScreen() {
                 encrypted into a .tsvault file. Use a new transfer passphrase;
                 do not reuse your 8-digit vault PIN. The Android share sheet can
                 send this ciphertext directly to a nearby device without an app
-                account. Encrypted receipt and warranty attachments remain on
-                this device in this release; export or retain those files
-                separately before moving devices.
+                account. Managed receipt and warranty attachments are included
+                and re-encrypted for the new device. Transfer packages are
+                limited to 24 MB of source attachment content.
               </ThemedText>
               <ThemedText style={styles.label}>Transfer passphrase</ThemedText>
               <TextInput

@@ -3,11 +3,18 @@ import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 
 import {
+  clearAllProducts,
   createEncryptedExport,
+  getAllProducts,
   getEncryptedExportSummary,
   importEncryptedExport,
   VaultExportSummary,
 } from "./database";
+import {
+  clearEncryptedAttachments,
+  collectEncryptedAttachmentsForTransfer,
+  restoreEncryptedAttachmentFromTransfer,
+} from "./vault-attachments";
 
 export const VAULT_TRANSFER_EXTENSION = ".tsvault";
 export const VAULT_TRANSFER_MIME_TYPE =
@@ -37,6 +44,10 @@ export function createRecoveryGuide({
   const fingerprintDescription = summary.fingerprint
     ? `Verification fingerprint: ${summary.fingerprint}`
     : "No transfer fingerprint is available for this legacy transfer format.";
+  const attachmentDescription =
+    summary.attachmentCount === null
+      ? "Attachment count is not available for this legacy transfer format."
+      : `${summary.attachmentCount} encrypted attachment${summary.attachmentCount === 1 ? "" : "s"} are included.`;
 
   return [
     "TSVaultKeySafe offline recovery guide",
@@ -48,13 +59,14 @@ export function createRecoveryGuide({
     `Created: ${summary.createdAt}`,
     `Format: v${summary.version}`,
     recordDescription,
+    attachmentDescription,
     fingerprintDescription,
     "",
     "To restore on a new device:",
     "1. Install TSVaultKeySafe and create a new local vault PIN.",
     "2. Unlock the new, empty vault and open Security > Transfer vault.",
     "3. Select the encrypted .tsvault file and enter its separate transfer passphrase.",
-    "4. Confirm the record count and verification fingerprint after import.",
+    "4. Confirm the record count, attachment count, and verification fingerprint after import.",
     "5. After confirming records, delete temporary transfer copies you no longer need.",
     "",
     "TSVaultKeySafe never stores this transfer, its passphrase, or a recovery key on a service.",
@@ -101,6 +113,7 @@ function verifyTransferFileName(name: string): void {
 
 export async function createAndShareVaultTransfer(
   vaultKey: string,
+  attachmentKey: string,
   passphrase: string,
   recordCount: number,
 ): Promise<VaultTransferResult> {
@@ -118,7 +131,16 @@ export async function createAndShareVaultTransfer(
   if (transferFile.exists) transferFile.delete();
 
   try {
-    const encryptedTransfer = await createEncryptedExport(vaultKey, passphrase);
+    const products = await getAllProducts(vaultKey);
+    const attachments = await collectEncryptedAttachmentsForTransfer(
+      products,
+      attachmentKey,
+    );
+    const encryptedTransfer = await createEncryptedExport(
+      vaultKey,
+      passphrase,
+      attachments,
+    );
     const summary = getEncryptedExportSummary(encryptedTransfer);
     transferFile.create();
     transferFile.write(encryptedTransfer);
@@ -134,6 +156,7 @@ export async function createAndShareVaultTransfer(
 
 export async function selectAndImportVaultTransfer(
   vaultKey: string,
+  attachmentKey: string,
   passphrase: string,
 ): Promise<VaultTransferResult | null> {
   if (!validateTransferPassphrase(passphrase)) {
@@ -162,13 +185,34 @@ export async function selectAndImportVaultTransfer(
   }
 
   const summary = getEncryptedExportSummary(serializedTransfer);
-  const recordCount = await importEncryptedExport(
-    serializedTransfer,
-    passphrase,
-    vaultKey,
-  );
-  if (summary.recordCount !== null && summary.recordCount !== recordCount) {
+  let imported;
+  try {
+    imported = await importEncryptedExport(
+      serializedTransfer,
+      passphrase,
+      vaultKey,
+      async (destinationProductId, attachment) =>
+        restoreEncryptedAttachmentFromTransfer(
+          destinationProductId,
+          attachment,
+          attachmentKey,
+        ),
+    );
+  } catch (error) {
+    // Imports are allowed only into an empty vault. Remove any partial target
+    // state rather than leaving an incomplete record/attachment combination.
+    clearEncryptedAttachments();
+    await clearAllProducts();
+    throw error;
+  }
+  if (
+    summary.recordCount !== null &&
+    summary.recordCount !== imported.recordCount
+  ) {
     throw new Error("Transfer record-count verification failed");
   }
-  return { recordCount, summary };
+  return {
+    recordCount: imported.recordCount,
+    summary: { ...summary, attachmentCount: imported.attachmentCount },
+  };
 }

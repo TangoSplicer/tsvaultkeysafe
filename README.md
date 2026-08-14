@@ -6,17 +6,17 @@ TSVaultKeySafe stores encrypted product records on the device. It does not requi
 
 ## Core capabilities
 
-| Area                  | Included capability                                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Vault workflow        | Create, search, edit, archive, copy, and delete encrypted product records.                                                                                               |
-| Access control        | Required eight-digit PIN, optional device biometrics, progressive lockouts, and automatic background locking.                                                            |
-| Record protection     | Versioned XChaCha20-Poly1305 authenticated encryption with a unique 192-bit nonce for every record.                                                                      |
-| Key handling          | A randomly generated 256-bit vault key in platform secure storage, with HKDF-SHA-256 purpose-separated database and attachment keys.                                     |
-| Privacy controls      | Screen-capture prevention while the vault is active and clipboard clearing when a copied license key remains unchanged for 30 seconds.                                   |
-| Data portability      | A user-facing `.tsvault` encrypted transfer and import flow with a separate passphrase, authenticated manifest, verification fingerprint, and non-secret recovery guide. |
-| Encrypted attachments | Up to 12 selected receipts or warranty files per product, each bounded to 8 MB and encrypted with a separate attachment subkey in private app storage.                   |
-| Local organization    | Favourites, tags, warranty dates, archive state, and local tag search.                                                                                                   |
-| Local resilience      | Opt-in generic on-device date reminders and a local SQLite plus authenticated-record health check.                                                                       |
+| Area                  | Included capability                                                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vault workflow        | Create, search, edit, archive, copy, and delete encrypted product records.                                                                                                                              |
+| Access control        | Required eight-digit PIN, optional device biometrics, progressive lockouts, and automatic background locking.                                                                                           |
+| Record protection     | Versioned XChaCha20-Poly1305 authenticated encryption with a unique 192-bit nonce for every record.                                                                                                     |
+| Key handling          | A randomly generated 256-bit vault key in platform secure storage, with HKDF-SHA-256 purpose-separated database and attachment keys.                                                                    |
+| Privacy controls      | Screen-capture prevention while the vault is active and clipboard clearing when a copied license key remains unchanged for 30 seconds.                                                                  |
+| Data portability      | A user-facing `.tsvault` encrypted transfer and import flow with a separate passphrase, authenticated manifest, verification fingerprint, managed encrypted attachments, and non-secret recovery guide. |
+| Encrypted attachments | Up to 12 selected receipts or warranty files per product, each bounded to 8 MB and encrypted with a separate attachment subkey in private app storage.                                                  |
+| Local organization    | Favourites, tags, warranty dates, archive state, and local tag search.                                                                                                                                  |
+| Local resilience      | Opt-in generic on-device date reminders and a local SQLite plus authenticated-record health check.                                                                                                      |
 
 ## Security model
 
@@ -71,13 +71,13 @@ Use a development build or simulator for biometric and screen-capture controls. 
 
 ## Offline transfer and recovery
 
-To move to a new device, create an encrypted transfer in **Security → Transfer vault** using a separate passphrase of at least 16 characters. Save or share the resulting ciphertext file using the owner-selected Android share sheet, then separately save the non-secret recovery guide. On the new device, create and unlock a new empty local vault before selecting the transfer file and entering its separate passphrase. Confirm the displayed record count and fingerprint after import, then remove temporary transfer copies you no longer need.
+To move to a new device, create an encrypted transfer in **Security → Transfer vault** using a separate passphrase of at least 16 characters. Save or share the resulting ciphertext file using the owner-selected Android share sheet, then separately save the non-secret recovery guide. On the new device, create and unlock a new empty local vault before selecting the transfer file and entering its separate passphrase. Confirm the displayed record count, attachment count, and fingerprint after import, then remove temporary transfer copies you no longer need. Attachment-inclusive packages are capped at 12 files and 24 MB of source attachment content.
 
 TSVaultKeySafe does not create an account, upload a vault, synchronize automatically, hold a recovery secret, or operate a transfer relay. The owner remains responsible for choosing where an encrypted transfer file is stored or shared.
 
 ## Release notes
 
-This repository targets version **1.3.0** on Expo SDK 54 and React Native 0.81. The Android workflow builds a self-contained release APK, confirms the embedded JavaScript bundle, and verifies Android 16 KB page-size alignment. Before app-store publication, validate setup, lock/unlock, transfer, attachment, reminder, and health-check flows on physical devices; complete export-compliance questions accurately; and rerun the dependency and threat-model review.
+This repository targets version **1.3.1** on Expo SDK 54 and React Native 0.81. The Android workflow builds a self-contained release APK, confirms the embedded JavaScript bundle, and verifies Android 16 KB page-size alignment. Before app-store publication, validate setup, lock/unlock, transfer, attachment, reminder, and health-check flows on physical devices; complete export-compliance questions accurately; and rerun the dependency and threat-model review.
 
 ## References
 

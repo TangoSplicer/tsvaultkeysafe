@@ -2,6 +2,7 @@ import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
 import { bytesToHex, utf8ToBytes } from "@noble/ciphers/utils";
 import { sha256 } from "@noble/hashes/sha256";
+import type { VaultTransferAttachment } from "./vault-attachments";
 import {
   decryptData,
   deriveExportKey,
@@ -60,6 +61,7 @@ export interface EncryptedVaultExport {
   version: 3;
   createdAt: string;
   recordCount: number;
+  attachmentCount?: number;
   fingerprint: string;
   salt: string;
   payload: EncryptedData;
@@ -79,11 +81,14 @@ interface VaultExportManifest {
   exportedAt: string;
   recordCount: number;
   productDigest: string;
+  attachmentCount?: number;
+  attachmentDigest?: string;
 }
 
 interface VaultExportPayload {
   manifest: VaultExportManifest;
   products: Product[];
+  attachments?: VaultTransferAttachment[];
 }
 
 export interface VaultExportSummary {
@@ -91,12 +96,24 @@ export interface VaultExportSummary {
   createdAt: string;
   recordCount: number | null;
   fingerprint: string | null;
+  attachmentCount: number | null;
 }
 
 interface DecodedVaultExport {
   products: Product[];
+  attachments: VaultTransferAttachment[];
   summary: VaultExportSummary;
 }
+
+export interface VaultImportResult {
+  recordCount: number;
+  attachmentCount: number;
+}
+
+export type AttachmentImportHandler = (
+  destinationProductId: string,
+  attachment: VaultTransferAttachment,
+) => Promise<void>;
 
 const DB_NAME = "tsvault.db";
 const MAX_PRODUCT_TEXT_LENGTH = 4_000;
@@ -416,6 +433,38 @@ function assertProducts(value: unknown): Product[] {
   return value as Product[];
 }
 
+function attachmentDigest(attachments: VaultTransferAttachment[]): string {
+  return bytesToHex(sha256(utf8ToBytes(JSON.stringify(attachments))));
+}
+
+function assertTransferAttachments(
+  value: unknown,
+  products: Product[],
+): VaultTransferAttachment[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 12) {
+    throw new Error("Export has an invalid number of attachments");
+  }
+  const productIds = new Set(products.map((product) => product.id));
+  const attachmentIds = new Set<string>();
+  for (const item of value) {
+    const attachment = item as VaultTransferAttachment;
+    if (
+      !attachment ||
+      typeof attachment !== "object" ||
+      !productIds.has(attachment.productId) ||
+      !attachment.reference ||
+      typeof attachment.reference.id !== "string" ||
+      !attachment.contentBase64 ||
+      attachmentIds.has(attachment.reference.id)
+    ) {
+      throw new Error("Export contains an invalid attachment");
+    }
+    attachmentIds.add(attachment.reference.id);
+  }
+  return value as VaultTransferAttachment[];
+}
+
 function parseExportBundle(
   serializedExport: string,
 ): EncryptedVaultExport | LegacyEncryptedVaultExport {
@@ -441,12 +490,17 @@ function summaryForExport(
       createdAt: bundle.createdAt,
       recordCount: null,
       fingerprint: null,
+      attachmentCount: null,
     };
   }
   if (
     !Number.isInteger(bundle.recordCount) ||
     bundle.recordCount < 0 ||
     bundle.recordCount > MAX_PRODUCTS_PER_IMPORT ||
+    (bundle.attachmentCount !== undefined &&
+      (!Number.isInteger(bundle.attachmentCount) ||
+        bundle.attachmentCount < 0 ||
+        bundle.attachmentCount > 12)) ||
     !/^[0-9A-F]{24}$/.test(bundle.fingerprint)
   ) {
     throw new Error("Export verification metadata is invalid");
@@ -456,6 +510,7 @@ function summaryForExport(
     createdAt: bundle.createdAt,
     recordCount: bundle.recordCount,
     fingerprint: bundle.fingerprint,
+    attachmentCount: bundle.attachmentCount ?? null,
   };
 }
 
@@ -475,14 +530,20 @@ async function decodeEncryptedExport(
   if (bundle.version === 2) {
     return {
       products: assertProducts(JSON.parse(plaintext)),
+      attachments: [],
       summary,
     };
   }
 
   const decryptedPayload = JSON.parse(plaintext) as VaultExportPayload;
   const products = assertProducts(decryptedPayload.products);
+  const attachments = assertTransferAttachments(
+    decryptedPayload.attachments,
+    products,
+  );
   const { manifest } = decryptedPayload;
   const digest = productDigest(products);
+  const transferredAttachmentDigest = attachmentDigest(attachments);
   if (
     !manifest ||
     manifest.format !== "tsvaultkeysafe-export-manifest" ||
@@ -490,12 +551,22 @@ async function decodeEncryptedExport(
     manifest.exportedAt !== bundle.createdAt ||
     manifest.recordCount !== products.length ||
     manifest.productDigest !== digest ||
+    (manifest.attachmentCount !== undefined &&
+      manifest.attachmentCount !== attachments.length) ||
+    (summary.attachmentCount !== null &&
+      summary.attachmentCount !== attachments.length) ||
+    (manifest.attachmentDigest !== undefined &&
+      manifest.attachmentDigest !== transferredAttachmentDigest) ||
     summary.recordCount !== products.length ||
     summary.fingerprint !== exportFingerprint(digest)
   ) {
     throw new Error("The encrypted export integrity check failed");
   }
-  return { products, summary };
+  return {
+    products,
+    attachments,
+    summary: { ...summary, attachmentCount: attachments.length },
+  };
 }
 
 /** Reads non-secret summary metadata for a transfer file before the owner chooses to import it. */
@@ -509,12 +580,15 @@ export function getEncryptedExportSummary(
 export async function createEncryptedExport(
   encryptionKey: string,
   passphrase: string,
+  attachments: VaultTransferAttachment[] = [],
 ): Promise<string> {
   if (passphrase.length < 12)
     throw new Error("Use an export passphrase of at least 12 characters");
   const products = await getAllProducts(encryptionKey);
   const createdAt = new Date().toISOString();
   const digest = productDigest(products);
+  const verifiedAttachments = assertTransferAttachments(attachments, products);
+  const transferredAttachmentDigest = attachmentDigest(verifiedAttachments);
   const exportPayload: VaultExportPayload = {
     manifest: {
       format: "tsvaultkeysafe-export-manifest",
@@ -522,8 +596,11 @@ export async function createEncryptedExport(
       exportedAt: createdAt,
       recordCount: products.length,
       productDigest: digest,
+      attachmentCount: verifiedAttachments.length,
+      attachmentDigest: transferredAttachmentDigest,
     },
     products,
+    attachments: verifiedAttachments,
   };
   const { key, salt } = await deriveExportKey(passphrase);
   const payload = await encryptData(
@@ -536,6 +613,7 @@ export async function createEncryptedExport(
     version: 3,
     createdAt,
     recordCount: products.length,
+    attachmentCount: verifiedAttachments.length,
     fingerprint: exportFingerprint(digest),
     salt,
     payload,
@@ -554,26 +632,47 @@ export async function importEncryptedExport(
   serializedExport: string,
   passphrase: string,
   encryptionKey: string,
-): Promise<number> {
-  const { products } = await decodeEncryptedExport(
+  restoreAttachment?: AttachmentImportHandler,
+): Promise<VaultImportResult> {
+  const { products, attachments } = await decodeEncryptedExport(
     serializedExport,
     passphrase,
   );
 
-  let imported = 0;
+  const sourceToDestination = new Map<string, string>();
   await getDb().withTransactionAsync(async () => {
     for (const product of products) {
       const {
-        id: _id,
+        id: sourceId,
         createdAt: _createdAt,
         updatedAt: _updatedAt,
         ...input
       } = product;
-      await createProduct(input, encryptionKey);
-      imported += 1;
+      const created = await createProduct(input, encryptionKey);
+      sourceToDestination.set(sourceId, created.id);
     }
   });
-  return imported;
+
+  let restoredAttachmentCount = 0;
+  if (restoreAttachment) {
+    for (const attachment of attachments) {
+      const destinationProductId = sourceToDestination.get(
+        attachment.productId,
+      );
+      if (!destinationProductId) {
+        throw new Error("Attachment transfer refers to an unknown product.");
+      }
+      await restoreAttachment(destinationProductId, attachment);
+      restoredAttachmentCount += 1;
+    }
+  }
+
+  return {
+    recordCount: products.length,
+    attachmentCount: restoreAttachment
+      ? restoredAttachmentCount
+      : attachments.length,
+  };
 }
 
 export async function clearAllProducts(): Promise<void> {

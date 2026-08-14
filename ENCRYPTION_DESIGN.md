@@ -93,9 +93,11 @@ The user-facing transfer flow creates an encrypted `.tsvault` file using a separ
 }
 ```
 
-The protected payload contains the records and an authenticated manifest with export time, count, and SHA-256 digest of the serialized record set. The importer decrypts and verifies the manifest, digest, public count, and fingerprint before committing any records. Legacy v2 transfers remain importable with their original AAD but do not have a public count or fingerprint.
+The protected payload contains records, bounded attachment transfer content, and an authenticated manifest with export time, record count, attachment count, and SHA-256 digests. The importer decrypts and verifies the manifest, digests, public count, attachment count, and fingerprint before committing records or recreating attachment ciphertext.
 
-The separate recovery guide contains only a file name, export date, format, record count where available, fingerprint, and restore steps. It intentionally contains no PIN, transfer passphrase, vault master key, or readable vault record. The app transfers only ciphertext through the owner-selected Android share sheet; it has no account, upload, sync, or recovery service.
+Attachments are read only while the source vault is unlocked, protected by the temporary transfer-passphrase package, and then immediately re-encrypted using the destination vault’s separate attachment key. The source vault master key is never exported, copied, wrapped, or shared. Packages are limited to 12 attachments and 24 MB of source attachment content to bound mobile resource use. Existing record-only version-3 and legacy version-2 transfers remain importable.
+
+The separate recovery guide contains only a file name, export date, format, record count, attachment count where available, fingerprint, and restore steps. It intentionally contains no PIN, transfer passphrase, vault master key, or readable vault record. The app transfers only ciphertext through the owner-selected Android share sheet; it has no account, upload, sync, or recovery service.
 
 ## Security boundaries and residual risk
 

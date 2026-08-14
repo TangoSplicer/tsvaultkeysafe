@@ -2,7 +2,7 @@ import * as Crypto from "expo-crypto";
 import * as DocumentPicker from "expo-document-picker";
 import { Directory, File, Paths } from "expo-file-system";
 
-import { VaultAttachment } from "./database";
+import type { VaultAttachment } from "./database";
 import { decryptData, encryptData, EncryptedData } from "./encryption";
 
 const ATTACHMENT_DIRECTORY_NAME = "tsvault-encrypted-attachments";
@@ -17,6 +17,14 @@ interface StoredAttachment {
   metadata: VaultAttachment;
   payload: EncryptedData;
 }
+
+export interface VaultTransferAttachment {
+  productId: string;
+  reference: VaultAttachment;
+  contentBase64: string;
+}
+
+const MAX_TRANSFER_ATTACHMENT_BYTES = 24 * 1024 * 1024;
 
 function attachmentDirectory(): Directory {
   return new Directory(Paths.document, ATTACHMENT_DIRECTORY_NAME);
@@ -134,6 +142,79 @@ export async function decryptAttachmentToCache(
   temporaryFile.create();
   temporaryFile.write(base64ToBytes(plaintextBase64));
   return temporaryFile;
+}
+
+export async function collectEncryptedAttachmentsForTransfer(
+  products: { id: string; attachments?: VaultAttachment[] }[],
+  attachmentKey: string,
+): Promise<VaultTransferAttachment[]> {
+  const transferAttachments: VaultTransferAttachment[] = [];
+  let totalBytes = 0;
+  for (const product of products) {
+    for (const reference of product.attachments ?? []) {
+      assertAttachmentReference(reference);
+      totalBytes += reference.size;
+      if (totalBytes > MAX_TRANSFER_ATTACHMENT_BYTES) {
+        throw new Error(
+          "Attachment transfer is limited to 24 MB per vault package.",
+        );
+      }
+      const storedFile = attachmentFile(reference.id);
+      if (!storedFile.exists) {
+        throw new Error(
+          `Encrypted attachment ${reference.name} is unavailable.`,
+        );
+      }
+      const stored = JSON.parse(await storedFile.text()) as StoredAttachment;
+      if (
+        stored.format !== ATTACHMENT_FORMAT ||
+        stored.version !== ATTACHMENT_VERSION ||
+        stored.metadata.id !== reference.id
+      ) {
+        throw new Error(
+          `Encrypted attachment ${reference.name} failed its integrity check.`,
+        );
+      }
+      const contentBase64 = await decryptData(
+        stored.payload,
+        attachmentKey,
+        `${product.id}:${reference.id}`,
+      );
+      transferAttachments.push({
+        productId: product.id,
+        reference,
+        contentBase64,
+      });
+    }
+  }
+  return transferAttachments;
+}
+
+export async function restoreEncryptedAttachmentFromTransfer(
+  productId: string,
+  transferAttachment: VaultTransferAttachment,
+  attachmentKey: string,
+): Promise<void> {
+  const { reference, contentBase64 } = transferAttachment;
+  assertAttachmentReference(reference);
+  if (reference.size > MAX_ATTACHMENT_BYTES || !contentBase64) {
+    throw new Error("Attachment transfer content is invalid.");
+  }
+  const payload = await encryptData(
+    contentBase64,
+    attachmentKey,
+    `${productId}:${reference.id}`,
+  );
+  const stored: StoredAttachment = {
+    format: ATTACHMENT_FORMAT,
+    version: ATTACHMENT_VERSION,
+    metadata: reference,
+    payload,
+  };
+  const destination = attachmentFile(reference.id);
+  if (destination.exists) destination.delete();
+  destination.create();
+  destination.write(JSON.stringify(stored));
 }
 
 export function deleteEncryptedAttachment(reference: VaultAttachment): void {

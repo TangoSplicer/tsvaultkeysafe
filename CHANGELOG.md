@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.3.1] — 2026-08-14
+
+### Changed
+
+- Encrypted `.tsvault` packages now include bounded encrypted attachment content as well as product records. Attachments are decrypted only inside an unlocked source vault and re-encrypted with the destination device’s separate attachment key during import.
+- Transfer summaries and recovery guides now report the verified attachment count alongside record count and fingerprint.
+- Attachment-inclusive packages are limited to 12 files and 24 MB of source attachment content to bound mobile memory and package size.
+- If an attachment cannot be restored after a verified import begins, the empty destination vault is cleared instead of retaining a partial record-and-attachment state.
+- Existing record-only version-3 transfer files remain importable.
+
+### Privacy boundary
+
+- The source vault master key is never exported, copied, wrapped, or shared. The owner-selected transfer passphrase protects only the temporary migration package.
+
+---
+
 ## [1.3.0] — 2026-08-14
 
 ### Added
