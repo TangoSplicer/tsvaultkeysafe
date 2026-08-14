@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.4.0] — 2026-08-14
+
+### Added
+
+- **Transfer preflight:** Before a `.tsvault` export starts, the app now reports the encrypted record count, managed-attachment count, estimated temporary package storage, and locally available device space. It blocks the operation when a managed attachment is missing, attachment limits are exceeded, or there is not enough local free space to prepare the package safely.
+- **Encrypted local recovery snapshots:** Owners can create up to three private, device-local recovery points from Security settings. Each point includes encrypted records and managed attachments, remains in private app storage, and is never uploaded or shared automatically.
+- **Restore safeguard:** Restoring the latest local recovery point first creates a fresh encrypted snapshot of the current vault before replacement begins, allowing the immediately preceding state to remain recoverable.
+- **Purpose-separated snapshot key:** Local recovery payloads use a dedicated HKDF-SHA-256 subkey with the context string `local-recovery-snapshot-encryption`, separate from database and attachment keys.
+
+### Changed
+
+- A permanent vault wipe now also removes all local encrypted recovery snapshots.
+- Transfer assembly independently enforces the same 12-file and 24 MB attachment package limits reported by preflight, preventing a stale screen state from bypassing the bound.
+
+### Privacy boundary
+
+- Local recovery snapshots add no cloud backup, account, telemetry, remote recovery key, sync service, or automatic export. They can only be decrypted while the original vault’s local device-protected key remains available.
+
+---
+
 ## [1.3.1] — 2026-08-14
 
 ### Changed

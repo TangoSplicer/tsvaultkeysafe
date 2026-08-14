@@ -36,8 +36,20 @@ import {
   getLocalVaultReminderCount,
   scheduleLocalVaultReminders,
 } from "@/lib/local-reminders";
-import { requireVaultDatabaseKey } from "@/lib/vault-service";
+import {
+  requireVaultAttachmentKey,
+  requireVaultDatabaseKey,
+  requireVaultSnapshotKey,
+} from "@/lib/vault-service";
 import { clearEncryptedAttachments } from "@/lib/vault-attachments";
+import {
+  clearLocalRecoverySnapshots,
+  createLocalRecoverySnapshot,
+  listLocalRecoverySnapshots,
+  LocalSnapshotSummary,
+  localSnapshotHistoryLimit,
+  restoreLocalRecoverySnapshot,
+} from "@/lib/vault-snapshots";
 import { endVaultSession } from "@/lib/vault-session";
 
 const lockOptions = [
@@ -62,6 +74,9 @@ export default function SecurityScreen() {
   const [scheduledReminderCount, setScheduledReminderCount] = useState(0);
   const [healthStatus, setHealthStatus] = useState<string | null>(null);
   const [checkingHealth, setCheckingHealth] = useState(false);
+  const [snapshots, setSnapshots] = useState<LocalSnapshotSummary[]>([]);
+  const [snapshotStatus, setSnapshotStatus] = useState<string | null>(null);
+  const [snapshotWorking, setSnapshotWorking] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -81,6 +96,7 @@ export default function SecurityScreen() {
       setAutoLock(timeout);
       setLocalRemindersEnabled(remindersEnabled);
       setScheduledReminderCount(reminderCount);
+      setSnapshots(listLocalRecoverySnapshots());
     } catch {
       router.replace("/unlock");
     } finally {
@@ -160,6 +176,106 @@ export default function SecurityScreen() {
     }
   };
 
+  const createSnapshot = async (reason: string) => {
+    try {
+      setSnapshotWorking(true);
+      setSnapshotStatus("Creating encrypted local recovery snapshot…");
+      const [databaseKey, attachmentKey, snapshotKey] = await Promise.all([
+        requireVaultDatabaseKey(),
+        requireVaultAttachmentKey(),
+        requireVaultSnapshotKey(),
+      ]);
+      const snapshot = await createLocalRecoverySnapshot(
+        databaseKey,
+        attachmentKey,
+        snapshotKey,
+        reason,
+      );
+      setSnapshots(listLocalRecoverySnapshots());
+      setSnapshotStatus(
+        `${snapshot.recordCount} record${snapshot.recordCount === 1 ? "" : "s"} and ${snapshot.attachmentCount} attachment${snapshot.attachmentCount === 1 ? "" : "s"} protected locally at ${new Date(snapshot.createdAt).toLocaleTimeString()}.`,
+      );
+    } catch (error) {
+      setSnapshotStatus(null);
+      Alert.alert(
+        "Unable to create local snapshot",
+        error instanceof Error
+          ? error.message
+          : "Try again while the vault remains unlocked.",
+      );
+    } finally {
+      setSnapshotWorking(false);
+    }
+  };
+
+  const restoreLatestSnapshot = () => {
+    const latest = snapshots[0];
+    if (!latest) return;
+    Alert.alert(
+      "Restore local snapshot?",
+      `This replaces the current vault records and managed attachments with the local snapshot from ${new Date(latest.createdAt).toLocaleString()}. A fresh snapshot is created first so the current state can still be recovered.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Create safeguard and restore",
+          style: "destructive",
+          onPress: async () => {
+            let safeguard: LocalSnapshotSummary | null = null;
+            let keys: [string, string, string] | null = null;
+            try {
+              setSnapshotWorking(true);
+              setSnapshotStatus("Creating safeguard snapshot before restore…");
+              keys = await Promise.all([
+                requireVaultDatabaseKey(),
+                requireVaultAttachmentKey(),
+                requireVaultSnapshotKey(),
+              ]);
+              const [databaseKey, attachmentKey, snapshotKey] = keys;
+              safeguard = await createLocalRecoverySnapshot(
+                databaseKey,
+                attachmentKey,
+                snapshotKey,
+                "Before restoring a local snapshot",
+              );
+              setSnapshotStatus(
+                "Verifying and restoring encrypted local snapshot…",
+              );
+              await restoreLocalRecoverySnapshot(
+                latest,
+                databaseKey,
+                attachmentKey,
+                snapshotKey,
+              );
+              await load();
+              setSnapshotStatus("Local snapshot restored and verified.");
+            } catch (error) {
+              let message =
+                error instanceof Error
+                  ? error.message
+                  : "The local snapshot could not be restored safely.";
+              if (safeguard && keys) {
+                try {
+                  setSnapshotStatus(
+                    "Restore stopped. Recovering the prior vault state…",
+                  );
+                  await restoreLocalRecoverySnapshot(safeguard, ...keys);
+                  await load();
+                  message = `${message}\n\nThe prior vault state was restored from the automatic safeguard.`;
+                } catch {
+                  message = `${message}\n\nThe automatic safeguard could not be restored. Do not make further changes; retry from Security settings.`;
+                }
+              }
+              setSnapshotStatus(null);
+              Alert.alert("Snapshot restore blocked", message);
+            } finally {
+              setSnapshotWorking(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const lockNow = () => {
     endVaultSession();
     router.replace("/unlock");
@@ -181,6 +297,7 @@ export default function SecurityScreen() {
           onPress: async () => {
             try {
               clearEncryptedAttachments();
+              clearLocalRecoverySnapshots();
               await clearAllProducts();
               await clearVaultAuthData();
               await wipeEncryptionData();
@@ -352,6 +469,67 @@ export default function SecurityScreen() {
             </Pressable>
           </Card>
         </Section>
+        <Section title="Local recovery snapshots">
+          <Card>
+            <ThemedText style={styles.helper}>
+              Keep up to {localSnapshotHistoryLimit()} encrypted recovery points
+              in this app’s private storage. Snapshots use a separate local key,
+              are never uploaded, and are removed with a permanent vault wipe.
+            </ThemedText>
+            <StatusRow
+              label="Local recovery points"
+              value={`${snapshots.length} of ${localSnapshotHistoryLimit()}`}
+              active={snapshots.length > 0}
+              divider
+            />
+            {snapshots[0] && (
+              <ThemedText style={styles.snapshotInfo}>
+                Latest: {snapshots[0].recordCount} record
+                {snapshots[0].recordCount === 1 ? "" : "s"},{" "}
+                {snapshots[0].attachmentCount} attachment
+                {snapshots[0].attachmentCount === 1 ? "" : "s"} ·{" "}
+                {new Date(snapshots[0].createdAt).toLocaleString()}
+              </ThemedText>
+            )}
+            {snapshotStatus && (
+              <ThemedText style={styles.healthStatus}>
+                {snapshotStatus}
+              </ThemedText>
+            )}
+            <Pressable
+              disabled={snapshotWorking}
+              onPress={() =>
+                void createSnapshot("Manual owner-created recovery point")
+              }
+              style={({ pressed }) => [
+                styles.healthButton,
+                (pressed || snapshotWorking) && styles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <ThemedText style={styles.healthButtonText}>
+                {snapshotWorking
+                  ? "Working…"
+                  : "Create encrypted local snapshot"}
+              </ThemedText>
+            </Pressable>
+            {snapshots.length > 0 && (
+              <Pressable
+                disabled={snapshotWorking}
+                onPress={restoreLatestSnapshot}
+                style={({ pressed }) => [
+                  styles.snapshotRestoreButton,
+                  (pressed || snapshotWorking) && styles.pressed,
+                ]}
+                accessibilityRole="button"
+              >
+                <ThemedText style={styles.snapshotRestoreText}>
+                  Restore latest local snapshot
+                </ThemedText>
+              </Pressable>
+            )}
+          </Card>
+        </Section>
         <Section title="Vault management">
           <Card>
             <StatusRow label="Encrypted records" value={String(productCount)} />
@@ -491,6 +669,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#CCFBF1",
   },
   healthButtonText: { color: "#0F766E", fontWeight: "800" },
+  snapshotInfo: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#475569",
+    paddingHorizontal: 15,
+    paddingTop: 10,
+  },
+  snapshotRestoreButton: {
+    marginHorizontal: 15,
+    marginBottom: 15,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+    backgroundColor: "#FFFBEB",
+  },
+  snapshotRestoreText: { color: "#B45309", fontWeight: "800" },
   optionGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, padding: 15 },
   option: {
     minWidth: "45%",

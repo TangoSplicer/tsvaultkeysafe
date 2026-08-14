@@ -76,6 +76,7 @@ export interface EncryptionKeys {
   masterKey: string;
   databaseKey: string;
   attachmentKey: string;
+  snapshotKey: string;
 }
 
 function secureStoreOptions(): SecureStore.SecureStoreOptions {
@@ -139,11 +140,19 @@ export async function deriveKeys(masterKey: string): Promise<EncryptionKeys> {
     utf8ToBytes("attachment-encryption"),
     DATA_KEY_BYTES,
   );
+  const snapshotKey = hkdf(
+    sha256,
+    masterKeyBytes,
+    KEY_DERIVATION_SALT,
+    utf8ToBytes("local-recovery-snapshot-encryption"),
+    DATA_KEY_BYTES,
+  );
 
   return {
     masterKey,
     databaseKey: bytesToHex(databaseKey),
     attachmentKey: bytesToHex(attachmentKey),
+    snapshotKey: bytesToHex(snapshotKey),
   };
 }
 

@@ -60,3 +60,7 @@ Thumbs.db
 *.tgz
 *.tar.gz
 .cache/
+
+# Local validation and downloaded release artifacts
+coverage/
+release-*/

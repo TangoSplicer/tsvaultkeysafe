@@ -67,6 +67,37 @@ export function attachmentLimits(): { maxBytes: number; maxCount: number } {
   return { maxBytes: MAX_ATTACHMENT_BYTES, maxCount: 12 };
 }
 
+export interface AttachmentTransferPreflight {
+  attachmentCount: number;
+  sourceBytes: number;
+  missingAttachmentNames: string[];
+  isWithinPackageLimit: boolean;
+}
+
+export function getAttachmentTransferPreflight(
+  products: { attachments?: VaultAttachment[] }[],
+): AttachmentTransferPreflight {
+  let attachmentCount = 0;
+  let sourceBytes = 0;
+  const missingAttachmentNames: string[] = [];
+  for (const product of products) {
+    for (const attachment of product.attachments ?? []) {
+      attachmentCount += 1;
+      sourceBytes += attachment.size;
+      if (!attachmentFile(attachment.id).exists) {
+        missingAttachmentNames.push(attachment.name);
+      }
+    }
+  }
+  return {
+    attachmentCount,
+    sourceBytes,
+    missingAttachmentNames,
+    isWithinPackageLimit:
+      attachmentCount <= 12 && sourceBytes <= MAX_TRANSFER_ATTACHMENT_BYTES,
+  };
+}
+
 export async function selectAndEncryptAttachment(
   productId: string,
   attachmentKey: string,
@@ -153,6 +184,11 @@ export async function collectEncryptedAttachmentsForTransfer(
   for (const product of products) {
     for (const reference of product.attachments ?? []) {
       assertAttachmentReference(reference);
+      if (transferAttachments.length >= attachmentLimits().maxCount) {
+        throw new Error(
+          "Attachment transfer is limited to 12 files per vault package.",
+        );
+      }
       totalBytes += reference.size;
       if (totalBytes > MAX_TRANSFER_ATTACHMENT_BYTES) {
         throw new Error(

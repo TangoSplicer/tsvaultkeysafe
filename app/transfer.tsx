@@ -22,9 +22,11 @@ import {
 } from "@/lib/vault-service";
 import {
   createAndShareVaultTransfer,
+  getVaultTransferPreflight,
   MIN_TRANSFER_PASSPHRASE_LENGTH,
   RecoveryGuideDetails,
   selectAndImportVaultTransfer,
+  VaultTransferPreflight,
   shareRecoveryGuide,
   validateTransferPassphrase,
 } from "@/lib/vault-transfer";
@@ -35,6 +37,9 @@ export default function TransferScreen() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [productCount, setProductCount] = useState(0);
+  const [preflight, setPreflight] = useState<VaultTransferPreflight | null>(
+    null,
+  );
   const [exportPassphrase, setExportPassphrase] = useState("");
   const [exportConfirmation, setExportConfirmation] = useState("");
   const [importPassphrase, setImportPassphrase] = useState("");
@@ -45,8 +50,13 @@ export default function TransferScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      await requireVaultDatabaseKey();
-      setProductCount((await getDatabaseStats()).productCount);
+      const key = await requireVaultDatabaseKey();
+      const [stats, transferPreflight] = await Promise.all([
+        getDatabaseStats(),
+        getVaultTransferPreflight(key),
+      ]);
+      setProductCount(stats.productCount);
+      setPreflight(transferPreflight);
     } catch {
       router.replace("/unlock");
     } finally {
@@ -59,6 +69,14 @@ export default function TransferScreen() {
   }, [load]);
 
   const createTransfer = async () => {
+    if (preflight && !preflight.canCreateTransfer) {
+      Alert.alert(
+        "Transfer needs attention",
+        preflight.blockingReason ??
+          "The local transfer preflight did not complete.",
+      );
+      return;
+    }
     if (!validateTransferPassphrase(exportPassphrase)) {
       Alert.alert(
         "Use a stronger transfer passphrase",
@@ -248,6 +266,33 @@ export default function TransferScreen() {
                 and re-encrypted for the new device. Transfer packages are
                 limited to 24 MB of source attachment content.
               </ThemedText>
+              {preflight && (
+                <View
+                  style={[
+                    styles.preflight,
+                    !preflight.canCreateTransfer && styles.preflightBlocked,
+                  ]}
+                >
+                  <ThemedText style={styles.preflightTitle}>
+                    {preflight.canCreateTransfer
+                      ? "Local transfer preflight passed"
+                      : "Local transfer preflight needs attention"}
+                  </ThemedText>
+                  <ThemedText style={styles.preflightCopy}>
+                    {preflight.recordCount} record
+                    {preflight.recordCount === 1 ? "" : "s"} ·{" "}
+                    {preflight.attachmentCount} attachment
+                    {preflight.attachmentCount === 1 ? "" : "s"} · about{" "}
+                    {formatBytes(preflight.estimatedPackageBytes)} temporary
+                    storage required.
+                  </ThemedText>
+                  {!preflight.canCreateTransfer && (
+                    <ThemedText style={styles.preflightCopy}>
+                      {preflight.blockingReason}
+                    </ThemedText>
+                  )}
+                </View>
+              )}
               <ThemedText style={styles.label}>Transfer passphrase</ThemedText>
               <TextInput
                 value={exportPassphrase}
@@ -275,11 +320,17 @@ export default function TransferScreen() {
                 accessibilityLabel="Confirm transfer passphrase"
               />
               <Pressable
-                disabled={working}
+                disabled={
+                  working ||
+                  (preflight !== null && !preflight.canCreateTransfer)
+                }
                 onPress={() => void createTransfer()}
                 style={({ pressed }) => [
                   styles.primaryButton,
-                  (pressed || working) && styles.pressed,
+                  (pressed ||
+                    working ||
+                    (preflight !== null && !preflight.canCreateTransfer)) &&
+                    styles.pressed,
                 ]}
                 accessibilityRole="button"
               >
@@ -373,6 +424,11 @@ export default function TransferScreen() {
   );
 }
 
+function formatBytes(value: number): string {
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function Section({
   title,
   children,
@@ -413,6 +469,22 @@ const styles = StyleSheet.create({
   },
   copy: { fontSize: 14, lineHeight: 21, opacity: 0.76 },
   helper: { fontSize: 12, lineHeight: 18, opacity: 0.66, marginBottom: 14 },
+  preflight: {
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#99F6E4",
+    marginBottom: 4,
+  },
+  preflightBlocked: { backgroundColor: "#FFFBEB", borderColor: "#FDE68A" },
+  preflightTitle: { color: "#0F766E", fontSize: 12, fontWeight: "800" },
+  preflightCopy: {
+    color: "#475569",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3,
+  },
   label: { fontSize: 13, fontWeight: "800", marginTop: 10, marginBottom: 7 },
   input: {
     height: 52,

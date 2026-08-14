@@ -13,6 +13,7 @@ import {
 import {
   clearEncryptedAttachments,
   collectEncryptedAttachmentsForTransfer,
+  getAttachmentTransferPreflight,
   restoreEncryptedAttachmentFromTransfer,
 } from "./vault-attachments";
 
@@ -26,6 +27,59 @@ export interface VaultTransferResult {
   recordCount: number;
   fileName?: string;
   summary?: VaultExportSummary;
+}
+
+export interface VaultTransferPreflight {
+  recordCount: number;
+  attachmentCount: number;
+  attachmentBytes: number;
+  estimatedPackageBytes: number;
+  availableDeviceBytes: number;
+  missingAttachmentNames: string[];
+  canCreateTransfer: boolean;
+  blockingReason?: string;
+}
+
+function estimatedPackageBytes(
+  recordBytes: number,
+  attachmentBytes: number,
+): number {
+  // Attachment data is encoded and encrypted twice during package construction.
+  // Reserve headroom for JSON, AEAD metadata, and the temporary share copy.
+  return Math.ceil(recordBytes * 2 + attachmentBytes * 3 + 512 * 1024);
+}
+
+export async function getVaultTransferPreflight(
+  vaultKey: string,
+): Promise<VaultTransferPreflight> {
+  const products = await getAllProducts(vaultKey);
+  const attachmentReport = getAttachmentTransferPreflight(products);
+  const packageEstimate = estimatedPackageBytes(
+    JSON.stringify(products).length,
+    attachmentReport.sourceBytes,
+  );
+  const availableDeviceBytes = Paths.availableDiskSpace;
+  let blockingReason: string | undefined;
+  if (attachmentReport.missingAttachmentNames.length > 0) {
+    blockingReason =
+      "One or more managed attachment files are unavailable on this device.";
+  } else if (!attachmentReport.isWithinPackageLimit) {
+    blockingReason =
+      "This transfer exceeds the 12-attachment or 24 MB attachment package limit.";
+  } else if (availableDeviceBytes < packageEstimate) {
+    blockingReason =
+      "This device does not have enough free local storage to safely prepare the transfer.";
+  }
+  return {
+    recordCount: products.length,
+    attachmentCount: attachmentReport.attachmentCount,
+    attachmentBytes: attachmentReport.sourceBytes,
+    estimatedPackageBytes: packageEstimate,
+    availableDeviceBytes,
+    missingAttachmentNames: attachmentReport.missingAttachmentNames,
+    canCreateTransfer: !blockingReason,
+    blockingReason,
+  };
 }
 
 export interface RecoveryGuideDetails {
