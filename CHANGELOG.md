@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.5.0] — 2026-08-15
+
+### Added
+
+- **Verified vault PIN rotation:** Security settings now provide a dedicated PIN-change flow. It requires the current eight-digit PIN under the existing progressive lockout policy before a new verifier is stored. The vault master key, encrypted records, attachments, biometric setting, encrypted transfers, and local snapshots are not copied, rewrapped, or exported.
+- **Local vault filters:** The vault list now supports instant on-device filters for active records, favourites, expiring or expired records, and archived records. The result count makes the active local scope clear.
+
+### Changed
+
+- Deleting a record from the vault list now removes its managed encrypted attachment ciphertext as well, matching deletion from the detail screen and preventing orphaned private-storage files.
+- The PIN-rotation and vault-filter controls include explicit accessibility roles, selection state, and descriptive labels for assistive technologies.
+
+### Privacy boundary
+
+- PIN rotation changes only the device-local PIN verifier in secure storage. Local filtering sends no query, metadata, product, vendor, license, or date information to a service.
+
+---
+
 ## [1.4.0] — 2026-08-14
 
 ### Added

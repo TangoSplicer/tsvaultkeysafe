@@ -309,6 +309,9 @@ export default function ProductDetailScreen() {
                 styles.category,
                 product.category === category && styles.categorySelected,
               ]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: product.category === category }}
+              accessibilityLabel={`${category} category`}
             >
               <ThemedText
                 style={[
@@ -381,6 +384,7 @@ export default function ProductDetailScreen() {
           <Switch
             value={product.isFavorite}
             onValueChange={(value) => update("isFavorite", value)}
+            accessibilityLabel="Mark product as favourite"
             trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
           />
         </View>
@@ -394,6 +398,7 @@ export default function ProductDetailScreen() {
           <Switch
             value={product.isArchived}
             onValueChange={(value) => update("isArchived", value)}
+            accessibilityLabel="Archive product"
             trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
           />
         </View>
@@ -455,6 +460,9 @@ export default function ProductDetailScreen() {
             styles.deleteButton,
             pressed && styles.pressed,
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${product.name}`}
+          accessibilityHint="Permanently deletes this encrypted record and its managed attachments after confirmation."
         >
           <ThemedText style={styles.deleteText}>Delete this product</ThemedText>
         </Pressable>
@@ -493,6 +501,7 @@ function Field({
       <TextInput
         {...props}
         style={[styles.input, props.multiline && styles.textarea]}
+        accessibilityLabel={props.accessibilityLabel ?? label}
         placeholderTextColor="#64748B"
       />
     </View>

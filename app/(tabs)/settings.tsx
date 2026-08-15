@@ -72,7 +72,7 @@ export default function SettingsScreen() {
         </Section>
         <Section title="About">
           <Card>
-            <Row label="Version" value="1.4.0" />
+            <Row label="Version" value="1.5.0" />
             <Row label="Storage mode" value="Offline only" divider />
             <Row
               label="Continuity"

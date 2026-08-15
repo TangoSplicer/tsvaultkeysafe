@@ -383,6 +383,22 @@ export default function SecurityScreen() {
                 />
               </View>
             )}
+            <Pressable
+              onPress={() => router.push("/change-pin")}
+              style={({ pressed }) => [
+                styles.pinChangeButton,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Change vault PIN"
+            >
+              <ThemedText style={styles.pinChangeText}>
+                Change vault PIN
+              </ThemedText>
+              <ThemedText style={styles.pinChangeHelper}>
+                Verify the current PIN before changing the unlock check.
+              </ThemedText>
+            </Pressable>
           </Card>
         </Section>
         <Section title="Auto-lock">
@@ -669,6 +685,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#CCFBF1",
   },
   healthButtonText: { color: "#0F766E", fontWeight: "800" },
+  pinChangeButton: {
+    margin: 15,
+    marginTop: 0,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#99F6E4",
+    backgroundColor: "#ECFDF5",
+  },
+  pinChangeText: { color: "#0F766E", fontWeight: "800" },
+  pinChangeHelper: {
+    color: "#475569",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 3,
+  },
   snapshotInfo: {
     fontSize: 12,
     lineHeight: 18,

@@ -46,6 +46,7 @@ export default function RootLayout() {
             <Stack.Screen name="unlock" options={{ gestureEnabled: false }} />
             <Stack.Screen name="setup" options={{ gestureEnabled: false }} />
             <Stack.Screen name="transfer" options={{ headerShown: false }} />
+            <Stack.Screen name="change-pin" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           </Stack>
           <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />

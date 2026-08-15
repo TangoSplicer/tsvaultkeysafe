@@ -147,6 +147,9 @@ export default function AddProductScreen() {
                 styles.category,
                 form.category === category && styles.categorySelected,
               ]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: form.category === category }}
+              accessibilityLabel={`${category} category`}
             >
               <ThemedText
                 style={[
@@ -210,6 +213,7 @@ export default function AddProductScreen() {
           <Switch
             value={form.isFavorite}
             onValueChange={(value) => update("isFavorite", value)}
+            accessibilityLabel="Mark product as favourite"
             trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
           />
         </View>
@@ -223,6 +227,7 @@ export default function AddProductScreen() {
           <Switch
             value={form.isArchived}
             onValueChange={(value) => update("isArchived", value)}
+            accessibilityLabel="Archive product on save"
             trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
           />
         </View>
@@ -261,6 +266,7 @@ function Field({
       <TextInput
         {...props}
         style={[styles.input, props.multiline && styles.textarea]}
+        accessibilityLabel={props.accessibilityLabel ?? label}
         placeholderTextColor="#64748B"
       />
     </View>

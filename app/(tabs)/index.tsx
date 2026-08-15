@@ -17,14 +17,26 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { deleteProduct, getAllProducts, Product } from "@/lib/database";
+import { deleteEncryptedAttachment } from "@/lib/vault-attachments";
 import { requireVaultDatabaseKey } from "@/lib/vault-service";
 import { isVaultSessionUnlocked } from "@/lib/vault-session";
+
+type VaultFilter = "all" | "active" | "favorites" | "archived" | "expiring";
+
+const vaultFilters: { key: VaultFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "active", label: "Active" },
+  { key: "favorites", label: "Favourites" },
+  { key: "expiring", label: "Expiring" },
+  { key: "archived", label: "Archived" },
+];
 
 export default function VaultScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<VaultFilter>("all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -72,10 +84,21 @@ export default function VaultScreen() {
             ...(product.tags ?? []),
           ].some((value) => value.toLocaleLowerCase().includes(normalized)),
         );
-    return [...matching].sort(
+    const scoped = matching.filter((product) => {
+      if (filter === "active") return !product.isArchived;
+      if (filter === "favorites")
+        return product.isFavorite && !product.isArchived;
+      if (filter === "archived") return product.isArchived;
+      if (filter === "expiring") {
+        const label = expiryStatus(product).label;
+        return label === "Expired" || label.endsWith("remaining");
+      }
+      return true;
+    });
+    return [...scoped].sort(
       (left, right) => Number(right.isFavorite) - Number(left.isFavorite),
     );
-  }, [products, query]);
+  }, [filter, products, query]);
 
   const copyLicenseKey = async (product: Product) => {
     await Clipboard.setStringAsync(product.licenseKey);
@@ -99,6 +122,7 @@ export default function VaultScreen() {
         onPress: async () => {
           try {
             await deleteProduct(product.id);
+            (product.attachments ?? []).forEach(deleteEncryptedAttachment);
             await load(true);
           } catch {
             Alert.alert(
@@ -168,6 +192,35 @@ export default function VaultScreen() {
           accessibilityLabel="Search vault"
         />
       </View>
+      <View style={styles.filterRow} accessibilityRole="tablist">
+        {vaultFilters.map((option) => (
+          <Pressable
+            key={option.key}
+            onPress={() => setFilter(option.key)}
+            style={({ pressed }) => [
+              styles.filter,
+              filter === option.key && styles.filterSelected,
+              pressed && styles.pressed,
+            ]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: filter === option.key }}
+            accessibilityLabel={`Show ${option.label.toLocaleLowerCase()} records`}
+          >
+            <ThemedText
+              style={[
+                styles.filterText,
+                filter === option.key && styles.filterTextSelected,
+              ]}
+            >
+              {option.label}
+            </ThemedText>
+          </Pressable>
+        ))}
+      </View>
+      <ThemedText style={styles.resultSummary}>
+        Showing {filtered.length} of {products.length} encrypted record
+        {products.length === 1 ? "" : "s"}
+      </ThemedText>
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -193,6 +246,7 @@ export default function VaultScreen() {
         }
         ListEmptyComponent={
           <EmptyState
+            hasFilter={filter !== "all"}
             hasQuery={Boolean(query)}
             onAdd={() => router.push("/add-product")}
           />
@@ -224,6 +278,7 @@ function ProductCard({
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={`Open ${product.name}`}
+      accessibilityHint={`${product.vendor}, ${status.label}. Opens the encrypted record.`}
     >
       <View style={styles.cardTop}>
         <View style={styles.cardTitle}>
@@ -247,10 +302,22 @@ function ProductCard({
         </ThemedText>
       )}
       <View style={styles.actions}>
-        <Pressable onPress={onCopy} style={styles.secondaryAction}>
+        <Pressable
+          onPress={onCopy}
+          style={styles.secondaryAction}
+          accessibilityRole="button"
+          accessibilityLabel={`Copy license key for ${product.name}`}
+          accessibilityHint="The copied key clears from the clipboard after 30 seconds when unchanged."
+        >
           <ThemedText style={styles.secondaryActionText}>Copy key</ThemedText>
         </Pressable>
-        <Pressable onPress={onDelete} style={styles.deleteAction}>
+        <Pressable
+          onPress={onDelete}
+          style={styles.deleteAction}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${product.name}`}
+          accessibilityHint="Permanently deletes this encrypted record after confirmation."
+        >
           <ThemedText style={styles.deleteActionText}>Delete</ThemedText>
         </Pressable>
       </View>
@@ -259,9 +326,11 @@ function ProductCard({
 }
 
 function EmptyState({
+  hasFilter,
   hasQuery,
   onAdd,
 }: {
+  hasFilter: boolean;
   hasQuery: boolean;
   onAdd: () => void;
 }) {
@@ -272,14 +341,14 @@ function EmptyState({
         <View style={styles.emptyBody} />
       </View>
       <ThemedText type="subtitle" style={styles.emptyTitle}>
-        {hasQuery ? "No matching records" : "Your vault is ready"}
+        {hasQuery || hasFilter ? "No matching records" : "Your vault is ready"}
       </ThemedText>
       <ThemedText style={styles.emptyText}>
-        {hasQuery
-          ? "Try a different search term."
+        {hasQuery || hasFilter
+          ? "Try changing your search or local filter."
           : "Add your first product or license to begin building your private inventory."}
       </ThemedText>
-      {!hasQuery && (
+      {!hasQuery && !hasFilter && (
         <Pressable onPress={onAdd} style={styles.emptyButton}>
           <ThemedText style={styles.emptyButtonText}>
             Add your first product
@@ -359,6 +428,24 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   searchInput: { fontSize: 16, color: "#0F172A" },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 9,
+  },
+  filter: {
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  filterSelected: { backgroundColor: "#0F766E", borderColor: "#0F766E" },
+  filterText: { color: "#475569", fontSize: 12, fontWeight: "800" },
+  filterTextSelected: { color: "#FFFFFF" },
+  resultSummary: { color: "#64748B", fontSize: 12, marginBottom: 12 },
   list: { paddingBottom: 102 },
   emptyList: { flexGrow: 1, paddingBottom: 96 },
   card: {

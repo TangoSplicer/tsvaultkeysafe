@@ -1,5 +1,7 @@
 /* eslint-disable import/first */
 
+const mockSecureStore = new Map<string, string>();
+
 jest.mock("expo-crypto", () => ({
   getRandomBytes: (length: number) => {
     const bytes = new Uint8Array(length);
@@ -11,9 +13,19 @@ jest.mock("expo-crypto", () => ({
 
 jest.mock("expo-secure-store", () => ({
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: "WHEN_UNLOCKED_THIS_DEVICE_ONLY",
-  setItemAsync: jest.fn(),
-  getItemAsync: jest.fn(),
-  deleteItemAsync: jest.fn(),
+  setItemAsync: async (key: string, value: string) => {
+    mockSecureStore.set(key, value);
+  },
+  getItemAsync: async (key: string) => mockSecureStore.get(key) ?? null,
+  deleteItemAsync: async (key: string) => {
+    mockSecureStore.delete(key);
+  },
+}));
+
+jest.mock("expo-local-authentication", () => ({
+  hasHardwareAsync: async () => false,
+  isEnrolledAsync: async () => false,
+  authenticateAsync: async () => ({ success: false }),
 }));
 
 import {
@@ -24,9 +36,14 @@ import {
   validatePin,
   verifyPin,
 } from "../lib/encryption";
+import { changeVaultPin, setVaultPin, verifyVaultPin } from "../lib/vault-auth";
 
 describe("vault cryptography", () => {
   const masterKey = "11".repeat(32);
+
+  beforeEach(() => {
+    mockSecureStore.clear();
+  });
 
   it("derives distinct subkeys for distinct vault purposes", async () => {
     const keys = await deriveKeys(masterKey);
@@ -78,4 +95,14 @@ describe("vault cryptography", () => {
     await expect(verifyPin("12345678", verifier)).resolves.toBe(true);
     await expect(verifyPin("87654321", verifier)).resolves.toBe(false);
   }, 30_000);
+
+  it("rotates the stored PIN only after current-PIN verification", async () => {
+    await setVaultPin("12345678");
+    await expect(changeVaultPin("87654321", "23456789")).rejects.toThrow(
+      "Invalid PIN",
+    );
+    await changeVaultPin("12345678", "23456789");
+    await expect(verifyVaultPin("12345678")).rejects.toThrow("Invalid PIN");
+    await expect(verifyVaultPin("23456789")).resolves.toBe(true);
+  }, 45_000);
 });
