@@ -33,6 +33,11 @@ import {
   deleteEncryptedAttachment,
   selectAndEncryptAttachment,
 } from "@/lib/vault-attachments";
+import {
+  normalizeVaultRecordType,
+  secureRecordFieldLabels,
+  vaultRecordTypes,
+} from "@/lib/vault-record-types";
 
 const categories: ProductCategory[] = [
   "Software",
@@ -49,6 +54,8 @@ export default function ProductDetailScreen() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const recordType = normalizeVaultRecordType(product?.recordType);
+  const fieldLabels = secureRecordFieldLabels(recordType);
 
   const load = useCallback(async () => {
     try {
@@ -107,7 +114,7 @@ export default function ProductDetailScreen() {
     }, 30_000);
     Alert.alert(
       "Copied securely",
-      "The license key will be cleared from the clipboard after 30 seconds if it has not changed.",
+      "The protected value will be cleared from the clipboard after 30 seconds if it has not changed.",
     );
   };
 
@@ -257,29 +264,63 @@ export default function ProductDetailScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <ThemedText type="title">Product details</ThemedText>
+          <ThemedText type="title">Secure item details</ThemedText>
           <ThemedText style={styles.subtitle}>
-            Edit the encrypted record below.
+            Edit the encrypted record below. All fields remain local to this
+            device.
           </ThemedText>
         </View>
+        <ThemedText style={styles.label}>Secure item type</ThemedText>
+        <View style={styles.categoryGrid} accessibilityRole="radiogroup">
+          {vaultRecordTypes.map((recordTypeOption) => (
+            <Pressable
+              key={recordTypeOption.type}
+              onPress={() => update("recordType", recordTypeOption.type)}
+              style={[
+                styles.category,
+                recordType === recordTypeOption.type && styles.categorySelected,
+              ]}
+              accessibilityRole="radio"
+              accessibilityState={{
+                selected: recordType === recordTypeOption.type,
+              }}
+              accessibilityLabel={recordTypeOption.label}
+            >
+              <ThemedText
+                style={[
+                  styles.categoryText,
+                  recordType === recordTypeOption.type &&
+                    styles.categoryTextSelected,
+                ]}
+              >
+                {recordTypeOption.label}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </View>
+        <ThemedText style={styles.recordTypeHelper}>
+          Avoid storing payment-card PINs, security codes, or one-time
+          authentication codes.
+        </ThemedText>
         <Field
-          label="Product name"
+          label={fieldLabels.title}
           value={product.name}
           onChangeText={(value) => update("name", value)}
           required
         />
         <Field
-          label="Vendor"
+          label={fieldLabels.provider}
           value={product.vendor}
           onChangeText={(value) => update("vendor", value)}
           required
         />
         <Field
-          label="License key"
+          label={fieldLabels.primaryLabel}
           value={product.licenseKey}
           onChangeText={(value) => update("licenseKey", value)}
+          placeholder={fieldLabels.primaryPlaceholder}
           multiline
-          autoCapitalize="characters"
+          autoCapitalize="none"
           required
         />
         <Pressable
@@ -290,14 +331,15 @@ export default function ProductDetailScreen() {
           ]}
         >
           <ThemedText style={styles.copyText}>
-            Copy license key for 30 seconds
+            Copy protected value for 30 seconds
           </ThemedText>
         </Pressable>
         <Field
-          label="Serial number"
+          label={fieldLabels.secondaryLabel}
           value={product.serialNumber ?? ""}
           onChangeText={(value) => update("serialNumber", value || undefined)}
-          autoCapitalize="characters"
+          placeholder={fieldLabels.secondaryPlaceholder}
+          autoCapitalize="none"
         />
         <ThemedText style={styles.label}>Category</ThemedText>
         <View style={styles.categoryGrid}>
@@ -540,6 +582,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+    marginBottom: 10,
+  },
+  recordTypeHelper: {
+    color: "#64748B",
+    fontSize: 12,
+    lineHeight: 18,
     marginBottom: 18,
   },
   category: {

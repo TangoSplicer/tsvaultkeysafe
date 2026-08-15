@@ -72,11 +72,11 @@ export default function SettingsScreen() {
         </Section>
         <Section title="About">
           <Card>
-            <Row label="Version" value="1.5.0" />
+            <Row label="Version" value="1.6.0" />
             <Row label="Storage mode" value="Offline only" divider />
             <Row
               label="Continuity"
-              value="Encrypted transfer and local recovery snapshots"
+              value="Encrypted secure items, transfers, and local recovery"
               divider
             />
             <Row label="License" value="MIT" divider />

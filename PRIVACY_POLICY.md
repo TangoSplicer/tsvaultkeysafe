@@ -32,8 +32,8 @@ TSVaultKeySafe does not collect, store, or transmit any personal information abo
 
 All data in TSVaultKeySafe is stored **exclusively on your device**:
 
-- **Local Storage:** Products and vault data are stored in an encrypted SQLite database on your device
-- **Encryption:** Product records and managed attachments use authenticated XChaCha20-Poly1305 encryption with purpose-separated local keys
+- **Local Storage:** Secure items and vault data are stored in an encrypted SQLite database on your device
+- **Encryption:** Secure-item records and managed attachments use authenticated XChaCha20-Poly1305 encryption with purpose-separated local keys
 - **No Cloud Sync:** Your data never leaves the device unless you explicitly choose to share an already encrypted transfer file
 - **No Service Backup:** We do not back up your data to cloud services or operate a backup service
 - **No Server Transmission:** TSVaultKeySafe does not transmit vault data to an external server
@@ -46,7 +46,7 @@ All data in TSVaultKeySafe is stored **exclusively on your device**:
 
 - **Algorithm:** XChaCha20-Poly1305 authenticated encryption for records, attachments, and transfer payloads
 - **Key Storage:** Master encryption keys are stored in your device's secure keystore (Android Keystore / iOS Keychain)
-- **At Rest:** Managed product records and attachments are encrypted on device
+- **At Rest:** Managed secure-item records and attachments are encrypted on device
 - **Transfer:** A separately passphrase-protected ciphertext file may be shared only when you explicitly choose an operating-system share destination
 
 ### Authentication
@@ -60,7 +60,7 @@ All data in TSVaultKeySafe is stored **exclusively on your device**:
 
 - Sensitive data (encryption keys, PINs) are cleared from memory after use
 - No sensitive data is logged or cached
-- Secure deletion is used when removing products
+- Managed encrypted attachment ciphertext is removed when its secure item is deleted
 
 ---
 
@@ -112,12 +112,12 @@ You have full control over your data:
 
 ### Modification
 
-- You can edit or update any product in your vault
-- You can delete any product at any time
+- You can edit or update any secure item in your vault
+- You can delete any secure item at any time
 
 ### Deletion
 
-- You can delete individual products
+- You can delete individual secure items
 - You can wipe your entire vault with the "Wipe All Data" option
 - Deleted data is securely removed from your device
 
@@ -133,7 +133,7 @@ You have full control over your data:
 
 **We do not retain any data.** All data is stored exclusively on your device:
 
-- When you delete a product, it is permanently removed from your device
+- When you delete a secure item, it is permanently removed from your device
 - When you uninstall the app, all data is removed from your device
 - We have no servers or databases storing your information
 

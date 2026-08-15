@@ -1,26 +1,26 @@
 # TSVaultKeySafe
 
-> **A private, offline-first mobile vault for product licenses, serial numbers, subscriptions, and related purchase information.**
+> **A private, offline-first mobile vault for licences, credentials, identity references, financial references, recovery material, secure notes, and related attachments.**
 
-TSVaultKeySafe stores encrypted product records on the device. It does not require an account, cloud sync, analytics, or a network service in its vault workflow. The application is intentionally designed as a local inventory tool rather than a password manager or a cloud backup service.
+TSVaultKeySafe stores encrypted secure-item records on the device. It does not require an account, cloud sync, analytics, or a network service in its vault workflow. The application is intentionally designed as a device-local encrypted vault rather than a cloud backup service or hosted password manager.
 
 ## Core capabilities
 
 | Area                  | Included capability                                                                                                                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Vault workflow        | Create, search, edit, archive, copy, and delete encrypted product records.                                                                                                                              |
+| Vault workflow        | Create, search, edit, archive, copy, and delete encrypted licences, credentials, identity references, financial references, recovery items, and secure notes.                                           |
 | Access control        | Required eight-digit PIN, optional device biometrics, progressive lockouts, and automatic background locking.                                                                                           |
 | Record protection     | Versioned XChaCha20-Poly1305 authenticated encryption with a unique 192-bit nonce for every record.                                                                                                     |
-| Key handling          | A randomly generated 256-bit vault key in platform secure storage, with HKDF-SHA-256 purpose-separated database and attachment keys.                                                                    |
-| Privacy controls      | Screen-capture prevention while the vault is active and clipboard clearing when a copied license key remains unchanged for 30 seconds.                                                                  |
+| Key handling          | A randomly generated 256-bit vault key in platform secure storage, with HKDF-SHA-256 purpose-separated database, attachment, and local-recovery snapshot keys.                                          |
+| Privacy controls      | Screen-capture prevention while the vault is active and clipboard clearing when a copied protected value remains unchanged for 30 seconds.                                                              |
 | Data portability      | A user-facing `.tsvault` encrypted transfer and import flow with a separate passphrase, authenticated manifest, verification fingerprint, managed encrypted attachments, and non-secret recovery guide. |
-| Encrypted attachments | Up to 12 selected receipts or warranty files per product, each bounded to 8 MB and encrypted with a separate attachment subkey in private app storage.                                                  |
-| Local organization    | Favourites, tags, warranty dates, archive state, and local tag search.                                                                                                                                  |
-| Local resilience      | Opt-in generic on-device date reminders and a local SQLite plus authenticated-record health check.                                                                                                      |
+| Encrypted attachments | Up to 12 selected supporting files per record, each bounded to 8 MB and encrypted with a separate attachment subkey in private app storage.                                                             |
+| Local organization    | Record-type classification, favourites, tags, dates, archive state, and local search and filters.                                                                                                       |
+| Local resilience      | Opt-in generic on-device date reminders, a local SQLite plus authenticated-record health check, and up to three encrypted local recovery snapshots.                                                     |
 
 ## Security model
 
-Each record is encrypted independently and authenticated with its record identifier as associated data. This detects ciphertext substitution as well as unauthorised modification. The implementation uses an audited XChaCha20-Poly1305 construction from `@noble/ciphers`; its extended nonce permits safe random nonce generation for the application’s local-record use case. [1]
+Each secure item is encrypted independently and authenticated with its record identifier as associated data. This detects ciphertext substitution as well as unauthorised modification. The implementation uses an audited XChaCha20-Poly1305 construction from `@noble/ciphers`; its extended nonce permits safe random nonce generation for the application’s local-record use case. [1]
 
 The PIN is stored only as a versioned PBKDF2-HMAC-SHA-256 verifier using a unique 256-bit salt and 600,000 iterations. This work factor follows OWASP’s published PBKDF2-HMAC-SHA-256 guidance. [2] The vault key and PIN verifier are stored through Expo SecureStore using device-only, unlocked-device accessibility. On Android this is backed by the Android Keystore; on iOS it uses Keychain Services. [3]
 
@@ -77,7 +77,7 @@ TSVaultKeySafe does not create an account, upload a vault, synchronize automatic
 
 ## Release notes
 
-This repository targets version **1.3.1** on Expo SDK 54 and React Native 0.81. The Android workflow builds a self-contained release APK, confirms the embedded JavaScript bundle, and verifies Android 16 KB page-size alignment. Before app-store publication, validate setup, lock/unlock, transfer, attachment, reminder, and health-check flows on physical devices; complete export-compliance questions accurately; and rerun the dependency and threat-model review.
+This repository targets version **1.6.0** on Expo SDK 54 and React Native 0.81. The Android workflow builds a self-contained release APK, confirms the embedded JavaScript bundle, and verifies Android 16 KB page-size alignment. Before app-store publication, validate setup, lock/unlock, PIN rotation, secure-item entry and filtering, transfer, attachment, local snapshot, reminder, and health-check flows on physical devices; complete export-compliance questions accurately; and rerun the dependency and threat-model review.
 
 ## References
 

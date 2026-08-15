@@ -3,6 +3,7 @@ import * as SQLite from "expo-sqlite";
 import { bytesToHex, utf8ToBytes } from "@noble/ciphers/utils";
 import { sha256 } from "@noble/hashes/sha256";
 import type { VaultTransferAttachment } from "./vault-attachments";
+import { isVaultRecordType, VaultRecordType } from "./vault-record-types";
 import {
   decryptData,
   deriveExportKey,
@@ -37,6 +38,7 @@ export interface Product {
   warrantyExpiryDate?: string;
   notes?: string;
   category: ProductCategory;
+  recordType?: VaultRecordType;
   tags?: string[];
   isFavorite: boolean;
   attachments?: VaultAttachment[];
@@ -218,6 +220,9 @@ function sanitizeProductInput(
     warrantyExpiryDate,
     notes: trimOptional(input.notes, "Notes"),
     category: input.category,
+    recordType: isVaultRecordType(input.recordType)
+      ? input.recordType
+      : "License",
     tags: Array.isArray(input.tags)
       ? Array.from(
           new Set(

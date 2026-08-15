@@ -17,6 +17,11 @@ import { createProduct, getAllProducts, ProductCategory } from "@/lib/database";
 import { isVaultLocalRemindersEnabled } from "@/lib/vault-auth";
 import { scheduleLocalVaultReminders } from "@/lib/local-reminders";
 import { requireVaultDatabaseKey } from "@/lib/vault-service";
+import {
+  secureRecordFieldLabels,
+  vaultRecordTypes,
+  VaultRecordType,
+} from "@/lib/vault-record-types";
 
 const categories: ProductCategory[] = [
   "Software",
@@ -38,6 +43,7 @@ type FormState = {
   tags: string;
   notes: string;
   category: ProductCategory;
+  recordType: VaultRecordType;
   isFavorite: boolean;
   isArchived: boolean;
 };
@@ -54,6 +60,7 @@ const initialForm: FormState = {
   tags: "",
   notes: "",
   category: "Software",
+  recordType: "License",
   isFavorite: false,
   isArchived: false,
 };
@@ -62,6 +69,7 @@ export default function AddProductScreen() {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(initialForm);
   const [saving, setSaving] = useState(false);
+  const fieldLabels = secureRecordFieldLabels(form.recordType);
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
 
@@ -102,40 +110,72 @@ export default function AddProductScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.hero}>
-          <ThemedText type="title">Add product</ThemedText>
+          <ThemedText type="title">Add secure item</ThemedText>
           <ThemedText style={styles.subtitle}>
             Store only what you need. Every field is encrypted in the vault.
           </ThemedText>
         </View>
+        <ThemedText style={styles.label}>Secure item type</ThemedText>
+        <View style={styles.categoryGrid} accessibilityRole="radiogroup">
+          {vaultRecordTypes.map((recordType) => (
+            <Pressable
+              key={recordType.type}
+              onPress={() => update("recordType", recordType.type)}
+              style={[
+                styles.category,
+                form.recordType === recordType.type && styles.categorySelected,
+              ]}
+              accessibilityRole="radio"
+              accessibilityState={{
+                selected: form.recordType === recordType.type,
+              }}
+              accessibilityLabel={recordType.label}
+            >
+              <ThemedText
+                style={[
+                  styles.categoryText,
+                  form.recordType === recordType.type &&
+                    styles.categoryTextSelected,
+                ]}
+              >
+                {recordType.label}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </View>
+        <ThemedText style={styles.recordTypeHelper}>
+          Avoid storing payment-card PINs, security codes, or one-time
+          authentication codes.
+        </ThemedText>
         <Field
-          label="Product name"
+          label={fieldLabels.title}
           value={form.name}
           onChangeText={(value) => update("name", value)}
-          placeholder="e.g. Pro editor"
+          placeholder="A clear private label"
           required
         />
         <Field
-          label="Vendor"
+          label={fieldLabels.provider}
           value={form.vendor}
           onChangeText={(value) => update("vendor", value)}
-          placeholder="e.g. Acme Software"
+          placeholder="Required"
           required
         />
         <Field
-          label="License key"
+          label={fieldLabels.primaryLabel}
           value={form.licenseKey}
           onChangeText={(value) => update("licenseKey", value)}
-          placeholder="Paste key"
+          placeholder={fieldLabels.primaryPlaceholder}
           required
           multiline
-          autoCapitalize="characters"
+          autoCapitalize="none"
         />
         <Field
-          label="Serial number"
+          label={fieldLabels.secondaryLabel}
           value={form.serialNumber}
           onChangeText={(value) => update("serialNumber", value)}
-          placeholder="Optional"
-          autoCapitalize="characters"
+          placeholder={fieldLabels.secondaryPlaceholder}
+          autoCapitalize="none"
         />
         <ThemedText style={styles.label}>Category</ThemedText>
         <View style={styles.categoryGrid}>
@@ -242,7 +282,7 @@ export default function AddProductScreen() {
           ]}
         >
           <ThemedText style={styles.saveText}>
-            {saving ? "Encrypting…" : "Save securely"}
+            {saving ? "Encrypting…" : "Save encrypted item"}
           </ThemedText>
         </Pressable>
       </View>
@@ -295,6 +335,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+    marginBottom: 10,
+  },
+  recordTypeHelper: {
+    color: "#64748B",
+    fontSize: 12,
+    lineHeight: 18,
     marginBottom: 18,
   },
   category: {

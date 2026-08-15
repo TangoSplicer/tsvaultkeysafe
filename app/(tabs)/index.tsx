@@ -19,6 +19,7 @@ import { ThemedView } from "@/components/themed-view";
 import { deleteProduct, getAllProducts, Product } from "@/lib/database";
 import { deleteEncryptedAttachment } from "@/lib/vault-attachments";
 import { requireVaultDatabaseKey } from "@/lib/vault-service";
+import { recordTypeLabel } from "@/lib/vault-record-types";
 import { isVaultSessionUnlocked } from "@/lib/vault-session";
 
 type VaultFilter = "all" | "active" | "favorites" | "archived" | "expiring";
@@ -81,6 +82,7 @@ export default function VaultScreen() {
             product.vendor,
             product.licenseKey,
             product.category,
+            recordTypeLabel(product.recordType),
             ...(product.tags ?? []),
           ].some((value) => value.toLocaleLowerCase().includes(normalized)),
         );
@@ -108,7 +110,7 @@ export default function VaultScreen() {
         await Clipboard.setStringAsync("");
     }, 30_000);
     Alert.alert(
-      "License key copied",
+      "Protected value copied",
       "For your privacy, it will clear from the clipboard after 30 seconds if the clipboard has not changed.",
     );
   };
@@ -185,7 +187,7 @@ export default function VaultScreen() {
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search products, vendors, or keys"
+          placeholder="Search secure items, providers, or values"
           placeholderTextColor="#64748B"
           style={styles.searchInput}
           autoCorrect={false}
@@ -287,7 +289,7 @@ function ProductCard({
             {product.name}
           </ThemedText>
           <ThemedText style={styles.vendor} numberOfLines={1}>
-            {product.vendor} · {product.category}
+            {recordTypeLabel(product.recordType)} · {product.vendor}
           </ThemedText>
         </View>
         <View style={[styles.badge, { backgroundColor: status.color + "1A" }]}>
@@ -306,10 +308,10 @@ function ProductCard({
           onPress={onCopy}
           style={styles.secondaryAction}
           accessibilityRole="button"
-          accessibilityLabel={`Copy license key for ${product.name}`}
-          accessibilityHint="The copied key clears from the clipboard after 30 seconds when unchanged."
+          accessibilityLabel={`Copy protected value for ${product.name}`}
+          accessibilityHint="The copied value clears from the clipboard after 30 seconds when unchanged."
         >
-          <ThemedText style={styles.secondaryActionText}>Copy key</ThemedText>
+          <ThemedText style={styles.secondaryActionText}>Copy value</ThemedText>
         </Pressable>
         <Pressable
           onPress={onDelete}

@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.6.0] — 2026-08-15
+
+### Added
+
+- **Broader encrypted secure items:** The vault can now classify encrypted records as licences and products, credentials, identity documents, financial references, recovery items, or secure notes. Every type uses the existing XChaCha20-Poly1305 encrypted record path, device-local secure key, local search, encrypted attachments, authenticated transfer, and local recovery snapshot workflow.
+- **Context-sensitive private fields:** Entry and editing screens now label the encrypted primary and secondary fields for the selected item type, such as a primary secret for credentials, a document number for identity items, a recovery secret, or protected note content.
+- **Legacy compatibility:** Existing vault records without a type are treated as Licence / product records automatically and remain readable, searchable, transferable, recoverable, and editable.
+
+### Changed
+
+- Vault search and record cards now describe secure items and their providers instead of assuming every entry is a product licence.
+- The About screen now reflects the broader offline encrypted-item scope.
+
+### Data-minimization boundary
+
+- The vault does not need payment-card PINs, card security codes, or one-time authentication codes. The entry and edit screens explicitly discourage storing them. No accounts, cloud storage, telemetry, analytics, remote recovery key, or network synchronization was added.
+
+---
+
 ## [1.5.0] — 2026-08-15
 
 ### Added
