@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -162,14 +163,18 @@ export default function VaultScreen() {
 
   return (
     <ThemedView
-      style={[styles.container, { paddingTop: Math.max(insets.top, 18) }]}
+      style={[styles.container, { paddingTop: Math.max(insets.top + 10, 28) }]}
     >
       <View style={styles.header}>
         <View>
-          <ThemedText type="title" style={styles.title}>
+          <View style={styles.eyebrow}>
+            <Ionicons name="shield-checkmark" size={14} color="#5EEAD4" />
+            <ThemedText style={styles.eyebrowText}>ON-DEVICE VAULT</ThemedText>
+          </View>
+          <ThemedText type="title" style={styles.heroTitle}>
             Your vault
           </ThemedText>
-          <ThemedText style={styles.subtitle}>
+          <ThemedText style={styles.heroSubtitle}>
             {products.filter((product) => !product.isArchived).length} active
             records · encrypted on device
           </ThemedText>
@@ -410,24 +415,54 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 20,
+    marginBottom: 18,
+    padding: 18,
+    borderRadius: 22,
+    backgroundColor: "#0F172A",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
   },
-  title: { fontSize: 30 },
-  subtitle: { marginTop: 4, fontSize: 13, opacity: 0.65 },
+  eyebrow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 7,
+  },
+  eyebrowText: {
+    color: "#99F6E4",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  heroTitle: { fontSize: 30, color: "#FFFFFF" },
+  heroSubtitle: { marginTop: 4, fontSize: 13, color: "#CBD5E1" },
   addButton: {
-    backgroundColor: "#0F766E",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    backgroundColor: "#14B8A6",
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+    borderRadius: 13,
+    shadowColor: "#5EEAD4",
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  addText: { color: "#FFFFFF", fontWeight: "800" },
+  addText: { color: "#042F2E", fontWeight: "900" },
   search: {
-    height: 52,
+    height: 54,
     justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "#E2E8F0",
-    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#D7E1EA",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 15,
     marginBottom: 16,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
   },
   searchInput: { fontSize: 16, color: "#0F172A" },
   filterRow: {
@@ -448,8 +483,8 @@ const styles = StyleSheet.create({
   filterText: { color: "#475569", fontSize: 12, fontWeight: "800" },
   filterTextSelected: { color: "#FFFFFF" },
   resultSummary: { color: "#64748B", fontSize: 12, marginBottom: 12 },
-  list: { paddingBottom: 102 },
-  emptyList: { flexGrow: 1, paddingBottom: 96 },
+  list: { paddingBottom: 128 },
+  emptyList: { flexGrow: 1, paddingBottom: 128 },
   card: {
     borderWidth: 1,
     borderColor: "#E2E8F0",

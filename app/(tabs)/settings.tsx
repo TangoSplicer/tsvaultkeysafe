@@ -10,7 +10,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   return (
     <ThemedView
-      style={[styles.container, { paddingTop: Math.max(insets.top, 18) }]}
+      style={[styles.container, { paddingTop: Math.max(insets.top + 10, 28) }]}
     >
       <ScrollView
         contentContainerStyle={styles.content}
@@ -27,8 +27,8 @@ export default function SettingsScreen() {
             TSVaultKeySafe
           </ThemedText>
           <ThemedText style={styles.tagline}>
-            Private license and product inventory, built to remain on your
-            device.
+            A private encrypted vault for the information you choose to keep on
+            this device.
           </ThemedText>
         </View>
         <Section title="Privacy promise">
@@ -72,7 +72,7 @@ export default function SettingsScreen() {
         </Section>
         <Section title="About">
           <Card>
-            <Row label="Version" value="1.6.0" />
+            <Row label="Version" value="1.7.0" />
             <Row label="Storage mode" value="Offline only" divider />
             <Row
               label="Continuity"
@@ -125,8 +125,20 @@ function Row({
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 18 },
-  content: { paddingBottom: 110 },
-  brand: { alignItems: "center", paddingHorizontal: 10, marginBottom: 30 },
+  content: { paddingTop: 8, paddingBottom: 128 },
+  brand: {
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    marginBottom: 28,
+    borderRadius: 24,
+    backgroundColor: "#0F172A",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
   mark: { width: 64, height: 67, marginBottom: 15 },
   shackle: {
     position: "absolute",
@@ -159,16 +171,26 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     backgroundColor: "#5EEAD4",
   },
-  title: { fontSize: 28 },
-  tagline: { marginTop: 7, textAlign: "center", opacity: 0.67, lineHeight: 20 },
-  section: { marginBottom: 25 },
-  sectionTitle: { fontSize: 17, marginBottom: 10 },
+  title: { fontSize: 28, color: "#FFFFFF" },
+  tagline: {
+    marginTop: 7,
+    textAlign: "center",
+    color: "#CBD5E1",
+    lineHeight: 20,
+  },
+  section: { marginBottom: 22 },
+  sectionTitle: { fontSize: 17, marginBottom: 10, color: "#0F766E" },
   card: {
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
   },
   copy: { padding: 16, fontSize: 14, lineHeight: 21, opacity: 0.76 },
   row: {

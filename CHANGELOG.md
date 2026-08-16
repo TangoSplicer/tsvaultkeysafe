@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.7.0] — 2026-08-15
+
+### Fixed
+
+- **Android safe-area boundaries:** Added measured status-bar spacing to tab and form screens, increased scroll clearance, and made add/edit footer actions clear the Android system-navigation inset. The native tab bar now reserves its own bottom inset so navigation controls do not cover content.
+
+### Changed
+
+- **Visual refresh:** Introduced a deeper navy and teal visual system, a clearer on-device vault hero, elevated cards, improved search treatment, more distinct section hierarchy, and stronger primary-action contrast while retaining accessible labels and privacy-first copy.
+- **Release metadata:** Updated the app to version 1.7.0 and Android versionCode 12.
+
+---
+
 ## [1.6.0] — 2026-08-15
 
 ### Added

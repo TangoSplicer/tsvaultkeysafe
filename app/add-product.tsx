@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
@@ -67,6 +68,7 @@ const initialForm: FormState = {
 
 export default function AddProductScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [form, setForm] = useState<FormState>(initialForm);
   const [saving, setSaving] = useState(false);
   const fieldLabels = secureRecordFieldLabels(form.recordType);
@@ -104,9 +106,14 @@ export default function AddProductScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView
+      style={[styles.container, { paddingTop: Math.max(insets.top + 10, 28) }]}
+    >
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: Math.max(insets.bottom + 128, 148) },
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.hero}>
@@ -272,7 +279,12 @@ export default function AddProductScreen() {
           />
         </View>
       </ScrollView>
-      <View style={styles.footer}>
+      <View
+        style={[
+          styles.footer,
+          { paddingBottom: Math.max(insets.bottom + 14, 22) },
+        ]}
+      >
         <Pressable
           onPress={() => void save()}
           disabled={saving}
@@ -315,7 +327,7 @@ function Field({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 120 },
+  content: { paddingHorizontal: 20, paddingTop: 8 },
   hero: { marginBottom: 24 },
   subtitle: { marginTop: 6, opacity: 0.68, lineHeight: 20 },
   field: { marginBottom: 16 },
@@ -365,8 +377,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: 16,
-    backgroundColor: "rgba(255,255,255,0.94)",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    backgroundColor: "rgba(248,250,252,0.97)",
     borderTopWidth: 1,
     borderTopColor: "#E2E8F0",
   },

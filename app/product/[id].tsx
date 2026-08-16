@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import * as Sharing from "expo-sharing";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 
@@ -51,6 +52,7 @@ export default function ProductDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
   const productId = Array.isArray(id) ? id[0] : id;
+  const insets = useSafeAreaInsets();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -258,9 +260,14 @@ export default function ProductDetailScreen() {
       </ThemedView>
     );
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView
+      style={[styles.container, { paddingTop: Math.max(insets.top + 10, 28) }]}
+    >
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: Math.max(insets.bottom + 138, 158) },
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
@@ -509,7 +516,12 @@ export default function ProductDetailScreen() {
           <ThemedText style={styles.deleteText}>Delete this product</ThemedText>
         </Pressable>
       </ScrollView>
-      <View style={styles.footer}>
+      <View
+        style={[
+          styles.footer,
+          { paddingBottom: Math.max(insets.bottom + 14, 22) },
+        ]}
+      >
         <Pressable
           onPress={() => void save()}
           disabled={saving}
@@ -553,7 +565,7 @@ function Field({
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { padding: 20, paddingBottom: 130 },
+  content: { paddingHorizontal: 20, paddingTop: 8 },
   header: { marginBottom: 24 },
   subtitle: { marginTop: 6, opacity: 0.68 },
   field: { marginBottom: 16 },
@@ -654,8 +666,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: 16,
-    backgroundColor: "rgba(255,255,255,0.94)",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    backgroundColor: "rgba(248,250,252,0.97)",
     borderTopWidth: 1,
     borderTopColor: "#E2E8F0",
   },

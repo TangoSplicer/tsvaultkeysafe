@@ -323,7 +323,7 @@ export default function SecurityScreen() {
     );
   return (
     <ThemedView
-      style={[styles.container, { paddingTop: Math.max(insets.top, 18) }]}
+      style={[styles.container, { paddingTop: Math.max(insets.top + 10, 28) }]}
     >
       <ScrollView
         contentContainerStyle={styles.content}
@@ -631,18 +631,23 @@ function StatusRow({
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 18 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  content: { paddingBottom: 110 },
+  content: { paddingTop: 8, paddingBottom: 128 },
   header: { marginBottom: 24 },
   title: { fontSize: 30 },
   subtitle: { marginTop: 5, opacity: 0.66 },
-  section: { marginBottom: 25 },
-  sectionTitle: { fontSize: 17, marginBottom: 10 },
+  section: { marginBottom: 22 },
+  sectionTitle: { fontSize: 17, marginBottom: 10, color: "#0F766E" },
   card: {
     borderWidth: 1,
     borderColor: "#E2E8F0",
     borderRadius: 16,
     overflow: "hidden",
     backgroundColor: "#FFFFFF",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
   },
   row: {
     minHeight: 60,
@@ -680,9 +685,11 @@ const styles = StyleSheet.create({
   healthButton: {
     margin: 15,
     alignItems: "center",
-    paddingVertical: 12,
-    borderRadius: 11,
+    paddingVertical: 13,
+    borderRadius: 13,
     backgroundColor: "#CCFBF1",
+    borderWidth: 1,
+    borderColor: "#99F6E4",
   },
   healthButtonText: { color: "#0F766E", fontWeight: "800" },
   pinChangeButton: {
@@ -741,9 +748,13 @@ const styles = StyleSheet.create({
     margin: 15,
     marginBottom: 10,
     alignItems: "center",
-    paddingVertical: 12,
-    borderRadius: 11,
+    paddingVertical: 13,
+    borderRadius: 13,
     backgroundColor: "#0F766E",
+    shadowColor: "#0F766E",
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 2,
   },
   transferButtonText: { color: "#FFFFFF", fontWeight: "800" },
   lockButton: {

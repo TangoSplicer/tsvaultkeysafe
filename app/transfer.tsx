@@ -226,7 +226,10 @@ export default function TransferScreen() {
       style={styles.container}
     >
       <ThemedView
-        style={[styles.container, { paddingTop: Math.max(insets.top, 18) }]}
+        style={[
+          styles.container,
+          { paddingTop: Math.max(insets.top + 10, 28) },
+        ]}
       >
         <ScrollView
           contentContainerStyle={styles.content}
@@ -453,7 +456,7 @@ function Card({ children }: { children: React.ReactNode }) {
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 18 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { paddingBottom: 42 },
+  content: { paddingTop: 8, paddingBottom: 128 },
   header: { marginBottom: 24 },
   title: { fontSize: 30 },
   subtitle: { marginTop: 6, lineHeight: 21, opacity: 0.68 },

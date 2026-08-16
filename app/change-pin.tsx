@@ -97,7 +97,10 @@ export default function ChangePinScreen() {
       style={styles.container}
     >
       <ThemedView
-        style={[styles.container, { paddingTop: Math.max(insets.top, 18) }]}
+        style={[
+          styles.container,
+          { paddingTop: Math.max(insets.top + 10, 28) },
+        ]}
       >
         <ScrollView
           contentContainerStyle={styles.content}
@@ -217,7 +220,7 @@ function PinField({
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 18 },
-  content: { paddingBottom: 40 },
+  content: { paddingTop: 8, paddingBottom: 128 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { marginBottom: 25 },
   title: { fontSize: 29 },
