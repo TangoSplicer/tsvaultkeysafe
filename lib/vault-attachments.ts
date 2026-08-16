@@ -74,6 +74,54 @@ export interface AttachmentTransferPreflight {
   isWithinPackageLimit: boolean;
 }
 
+export interface AttachmentIntegrityReport {
+  attachmentCount: number;
+  verifiedCount: number;
+  missingNames: string[];
+  corruptNames: string[];
+}
+
+export async function verifyEncryptedAttachments(
+  products: { id: string; attachments?: VaultAttachment[] }[],
+  attachmentKey: string,
+): Promise<AttachmentIntegrityReport> {
+  const report: AttachmentIntegrityReport = {
+    attachmentCount: 0,
+    verifiedCount: 0,
+    missingNames: [],
+    corruptNames: [],
+  };
+  for (const product of products) {
+    for (const reference of product.attachments ?? []) {
+      report.attachmentCount += 1;
+      const storedFile = attachmentFile(reference.id);
+      if (!storedFile.exists) {
+        report.missingNames.push(reference.name);
+        continue;
+      }
+      try {
+        const stored = JSON.parse(await storedFile.text()) as StoredAttachment;
+        if (
+          stored.format !== ATTACHMENT_FORMAT ||
+          stored.version !== ATTACHMENT_VERSION ||
+          stored.metadata.id !== reference.id
+        ) {
+          throw new Error("Attachment envelope mismatch");
+        }
+        await decryptData(
+          stored.payload,
+          attachmentKey,
+          `${product.id}:${reference.id}`,
+        );
+        report.verifiedCount += 1;
+      } catch {
+        report.corruptNames.push(reference.name);
+      }
+    }
+  }
+  return report;
+}
+
 export function getAttachmentTransferPreflight(
   products: { attachments?: VaultAttachment[] }[],
 ): AttachmentTransferPreflight {

@@ -1,3 +1,4 @@
+import { MIN_TRANSFER_PASSPHRASE_LENGTH } from "./transfer-strength";
 import * as DocumentPicker from "expo-document-picker";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -20,7 +21,11 @@ import {
 export const VAULT_TRANSFER_EXTENSION = ".tsvault";
 export const VAULT_TRANSFER_MIME_TYPE =
   "application/vnd.tsvaultkeysafe.transfer+json";
-export const MIN_TRANSFER_PASSPHRASE_LENGTH = 16;
+export {
+  getTransferPassphraseStrength,
+  MIN_TRANSFER_PASSPHRASE_LENGTH,
+} from "./transfer-strength";
+
 const MAX_TRANSFER_FILE_BYTES = 64 * 1024 * 1024;
 
 export interface VaultTransferResult {

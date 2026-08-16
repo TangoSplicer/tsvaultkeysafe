@@ -18,10 +18,12 @@ import { ThemedView } from "@/components/themed-view";
 import { getDatabaseStats } from "@/lib/database";
 import {
   requireVaultAttachmentKey,
+  requireVaultAuditKey,
   requireVaultDatabaseKey,
 } from "@/lib/vault-service";
 import {
   createAndShareVaultTransfer,
+  getTransferPassphraseStrength,
   getVaultTransferPreflight,
   MIN_TRANSFER_PASSPHRASE_LENGTH,
   RecoveryGuideDetails,
@@ -30,6 +32,20 @@ import {
   shareRecoveryGuide,
   validateTransferPassphrase,
 } from "@/lib/vault-transfer";
+import {
+  appendVaultAuditEvent,
+  VaultAuditAction,
+  VaultAuditOutcome,
+} from "@/lib/vault-audit";
+
+function logSecurityEvent(
+  action: VaultAuditAction,
+  outcome: VaultAuditOutcome,
+): void {
+  void requireVaultAuditKey()
+    .then((key) => appendVaultAuditEvent(key, action, outcome))
+    .catch(() => undefined);
+}
 
 export default function TransferScreen() {
   const router = useRouter();
@@ -46,6 +62,7 @@ export default function TransferScreen() {
   const [status, setStatus] = useState("");
   const [recoveryGuide, setRecoveryGuide] =
     useState<RecoveryGuideDetails | null>(null);
+  const passphraseStrength = getTransferPassphraseStrength(exportPassphrase);
 
   const load = useCallback(async () => {
     try {
@@ -93,6 +110,7 @@ export default function TransferScreen() {
     }
 
     try {
+      logSecurityEvent("transfer-export", "started");
       setWorking(true);
       setStatus("Requiring an active secure session");
       const [key, attachmentKey] = await Promise.all([
@@ -120,11 +138,13 @@ export default function TransferScreen() {
         ? `\nVerification fingerprint: ${result.summary.fingerprint}`
         : "";
       const attachmentCount = result.summary?.attachmentCount ?? 0;
+      logSecurityEvent("transfer-export", "succeeded");
       Alert.alert(
         "Encrypted transfer ready",
         `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} and ${attachmentCount} encrypted attachment${attachmentCount === 1 ? "" : "s"} were prepared. Save the .tsvault file and keep its transfer passphrase separate from the file.${fingerprint}`,
       );
     } catch (error) {
+      logSecurityEvent("transfer-export", "failed");
       Alert.alert(
         "Unable to create transfer",
         error instanceof Error
@@ -153,6 +173,7 @@ export default function TransferScreen() {
     }
 
     try {
+      logSecurityEvent("transfer-import", "started");
       setWorking(true);
       setStatus("Requiring an active secure session");
       const [key, attachmentKey] = await Promise.all([
@@ -176,12 +197,14 @@ export default function TransferScreen() {
         ? `\nVerification fingerprint confirmed: ${result.summary.fingerprint}`
         : "";
       const attachmentCount = result.summary?.attachmentCount ?? 0;
+      logSecurityEvent("transfer-import", "succeeded");
       Alert.alert(
         "Transfer restored",
         `${result.recordCount} encrypted record${result.recordCount === 1 ? "" : "s"} and ${attachmentCount} encrypted attachment${attachmentCount === 1 ? "" : "s"} were verified and restored to this device.${fingerprint}`,
       );
       router.back();
     } catch (error) {
+      logSecurityEvent("transfer-import", "failed");
       Alert.alert(
         "Import blocked",
         error instanceof Error
@@ -308,6 +331,9 @@ export default function TransferScreen() {
                 style={styles.input}
                 accessibilityLabel="Transfer passphrase"
               />
+              <ThemedText style={styles.passphraseStrength}>
+                Passphrase strength: {passphraseStrength}
+              </ThemedText>
               <ThemedText style={styles.label}>
                 Confirm transfer passphrase
               </ThemedText>
@@ -489,6 +515,14 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   label: { fontSize: 13, fontWeight: "800", marginTop: 10, marginBottom: 7 },
+  passphraseStrength: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#0F766E",
+    marginTop: -2,
+    marginBottom: 2,
+    textTransform: "capitalize",
+  },
   input: {
     height: 52,
     borderWidth: 1,

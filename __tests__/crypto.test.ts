@@ -37,6 +37,7 @@ import {
   verifyPin,
 } from "../lib/encryption";
 import { changeVaultPin, setVaultPin, verifyVaultPin } from "../lib/vault-auth";
+import { getTransferPassphraseStrength } from "../lib/transfer-strength";
 
 describe("vault cryptography", () => {
   const masterKey = "11".repeat(32);
@@ -50,8 +51,23 @@ describe("vault cryptography", () => {
     expect(keys.databaseKey).not.toEqual(keys.attachmentKey);
     expect(keys.databaseKey).not.toEqual(keys.snapshotKey);
     expect(keys.attachmentKey).not.toEqual(keys.snapshotKey);
+    expect(keys.auditKey).not.toEqual(keys.databaseKey);
+    expect(keys.auditKey).not.toEqual(keys.attachmentKey);
+    expect(keys.auditKey).not.toEqual(keys.snapshotKey);
     expect(keys.databaseKey).toHaveLength(64);
     expect(keys.snapshotKey).toHaveLength(64);
+    expect(keys.auditKey).toHaveLength(64);
+  });
+
+  it("classifies transfer passphrases locally without accepting short secrets", () => {
+    expect(getTransferPassphraseStrength("short")).toBe("too-short");
+    expect(getTransferPassphraseStrength("a".repeat(16))).toBe("fair");
+    expect(getTransferPassphraseStrength("Longer phrase 2026!!")).toBe(
+      "strong",
+    );
+    expect(
+      getTransferPassphraseStrength("A much longer passphrase 2026!"),
+    ).toBe("excellent");
   });
 
   it("round-trips authenticated encrypted data with associated data", async () => {

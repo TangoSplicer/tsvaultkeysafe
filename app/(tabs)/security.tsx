@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ThemedText } from "@/components/themed-text";
+import { SensitiveActionGate } from "@/components/sensitive-action-gate";
 import { ThemedView } from "@/components/themed-view";
 import {
   clearAllProducts,
@@ -38,10 +39,14 @@ import {
 } from "@/lib/local-reminders";
 import {
   requireVaultAttachmentKey,
+  requireVaultAuditKey,
   requireVaultDatabaseKey,
   requireVaultSnapshotKey,
 } from "@/lib/vault-service";
-import { clearEncryptedAttachments } from "@/lib/vault-attachments";
+import {
+  clearEncryptedAttachments,
+  verifyEncryptedAttachments,
+} from "@/lib/vault-attachments";
 import {
   clearLocalRecoverySnapshots,
   createLocalRecoverySnapshot,
@@ -51,6 +56,12 @@ import {
   restoreLocalRecoverySnapshot,
 } from "@/lib/vault-snapshots";
 import { endVaultSession } from "@/lib/vault-session";
+import {
+  appendVaultAuditEvent,
+  clearVaultAuditEvents,
+  listVaultAuditEvents,
+  VaultAuditEvent,
+} from "@/lib/vault-audit";
 
 const lockOptions = [
   { label: "15 sec", value: 15_000 },
@@ -77,6 +88,20 @@ export default function SecurityScreen() {
   const [snapshots, setSnapshots] = useState<LocalSnapshotSummary[]>([]);
   const [snapshotStatus, setSnapshotStatus] = useState<string | null>(null);
   const [snapshotWorking, setSnapshotWorking] = useState(false);
+  const [auditEvents, setAuditEvents] = useState<VaultAuditEvent[]>([]);
+  const [sensitiveAction, setSensitiveAction] = useState<
+    "transfer" | "wipe" | null
+  >(null);
+
+  const logAudit = (
+    action: VaultAuditEvent["action"],
+    outcome: VaultAuditEvent["outcome"],
+    detail?: string,
+  ) => {
+    void requireVaultAuditKey()
+      .then((key) => appendVaultAuditEvent(key, action, outcome, detail))
+      .catch(() => undefined);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -97,6 +122,12 @@ export default function SecurityScreen() {
       setLocalRemindersEnabled(remindersEnabled);
       setScheduledReminderCount(reminderCount);
       setSnapshots(listLocalRecoverySnapshots());
+      try {
+        const auditKey = await requireVaultAuditKey();
+        setAuditEvents(await listVaultAuditEvents(auditKey));
+      } catch {
+        setAuditEvents([]);
+      }
     } catch {
       router.replace("/unlock");
     } finally {
@@ -157,13 +188,43 @@ export default function SecurityScreen() {
   const checkVaultHealth = async () => {
     try {
       setCheckingHealth(true);
-      setHealthStatus("Checking SQLite and encrypted records on this device…");
-      const key = await requireVaultDatabaseKey();
-      const report = await runVaultHealthCheck(key);
       setHealthStatus(
-        `${report.productCount} encrypted record${report.productCount === 1 ? "" : "s"} verified locally at ${new Date(report.checkedAt).toLocaleTimeString()}.`,
+        "Checking records and encrypted attachments on this device…",
       );
+      const [key, attachmentKey] = await Promise.all([
+        requireVaultDatabaseKey(),
+        requireVaultAttachmentKey(),
+      ]);
+      const report = await runVaultHealthCheck(key);
+      const products = await getAllProducts(key);
+      const attachments = await verifyEncryptedAttachments(
+        products,
+        attachmentKey,
+      );
+      const attachmentIssueCount =
+        attachments.missingNames.length + attachments.corruptNames.length;
+      if (attachmentIssueCount > 0) {
+        logAudit(
+          "attachment-integrity-check",
+          "blocked",
+          `${attachmentIssueCount} attachment issue${attachmentIssueCount === 1 ? "" : "s"}`,
+        );
+        setHealthStatus(
+          `${report.productCount} record${report.productCount === 1 ? "" : "s"} verified, but ${attachmentIssueCount} managed attachment${attachmentIssueCount === 1 ? "" : "s"} need attention.`,
+        );
+      } else {
+        logAudit(
+          "attachment-integrity-check",
+          "succeeded",
+          "All attachments verified",
+        );
+        setHealthStatus(
+          `${report.productCount} record${report.productCount === 1 ? "" : "s"} and ${attachments.verifiedCount} attachment${attachments.verifiedCount === 1 ? "" : "s"} verified locally at ${new Date(report.checkedAt).toLocaleTimeString()}.`,
+        );
+      }
+      logAudit("vault-health-check", "succeeded");
     } catch (error) {
+      logAudit("vault-health-check", "failed");
       setHealthStatus(null);
       Alert.alert(
         "Vault health needs attention",
@@ -195,7 +256,9 @@ export default function SecurityScreen() {
       setSnapshotStatus(
         `${snapshot.recordCount} record${snapshot.recordCount === 1 ? "" : "s"} and ${snapshot.attachmentCount} attachment${snapshot.attachmentCount === 1 ? "" : "s"} protected locally at ${new Date(snapshot.createdAt).toLocaleTimeString()}.`,
       );
+      logAudit("snapshot-create", "succeeded");
     } catch (error) {
+      logAudit("snapshot-create", "failed");
       setSnapshotStatus(null);
       Alert.alert(
         "Unable to create local snapshot",
@@ -248,7 +311,9 @@ export default function SecurityScreen() {
               );
               await load();
               setSnapshotStatus("Local snapshot restored and verified.");
+              logAudit("snapshot-restore", "succeeded");
             } catch (error) {
+              logAudit("snapshot-restore", "failed");
               let message =
                 error instanceof Error
                   ? error.message
@@ -281,11 +346,15 @@ export default function SecurityScreen() {
     router.replace("/unlock");
   };
 
-  const transferVault = () => {
-    router.push("/transfer");
+  const requestTransfer = () => {
+    setSensitiveAction("transfer");
   };
 
-  const wipeVault = () => {
+  const requestWipe = () => {
+    setSensitiveAction("wipe");
+  };
+
+  const confirmWipeVault = () => {
     Alert.alert(
       "Permanently wipe vault?",
       `This removes all ${productCount} encrypted records, the vault key, PIN, and security preferences from this device. It cannot be undone.`,
@@ -298,6 +367,7 @@ export default function SecurityScreen() {
             try {
               clearEncryptedAttachments();
               clearLocalRecoverySnapshots();
+              clearVaultAuditEvents();
               await clearAllProducts();
               await clearVaultAuthData();
               await wipeEncryptionData();
@@ -315,6 +385,17 @@ export default function SecurityScreen() {
     );
   };
 
+  const completeSensitiveAction = () => {
+    const action = sensitiveAction;
+    setSensitiveAction(null);
+    if (action === "transfer") {
+      router.push("/transfer");
+    } else if (action === "wipe") {
+      logAudit("vault-wipe", "started");
+      confirmWipeVault();
+    }
+  };
+
   if (loading)
     return (
       <ThemedView style={styles.center}>
@@ -322,270 +403,364 @@ export default function SecurityScreen() {
       </ThemedView>
     );
   return (
-    <ThemedView
-      style={[styles.container, { paddingTop: Math.max(insets.top + 10, 28) }]}
-    >
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+    <>
+      <ThemedView
+        style={[
+          styles.container,
+          { paddingTop: Math.max(insets.top + 10, 28) },
+        ]}
       >
-        <View style={styles.header}>
-          <ThemedText type="title" style={styles.title}>
-            Security
-          </ThemedText>
-          <ThemedText style={styles.subtitle}>
-            Controls protecting this vault on this device.
-          </ThemedText>
-        </View>
-        <Section title="Protection status">
-          <Card>
-            <StatusRow
-              label="Vault encryption"
-              value="XChaCha20-Poly1305"
-              active
-            />
-            <StatusRow label="Data storage" value="Local only" active divider />
-            <StatusRow
-              label="Screen capture"
-              value="Blocked while open"
-              active
-              divider
-            />
-            <StatusRow
-              label="Background handling"
-              value="Locks immediately"
-              active
-              divider
-            />
-          </Card>
-        </Section>
-        <Section title="Authentication">
-          <Card>
-            <StatusRow
-              label="8-digit vault PIN"
-              value={pinSet ? "Enabled" : "Missing"}
-              active={pinSet}
-            />
-            {biometricAvailable && (
-              <View style={[styles.row, styles.divider]}>
-                <View>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}>
+            <ThemedText type="title" style={styles.title}>
+              Security
+            </ThemedText>
+            <ThemedText style={styles.subtitle}>
+              Controls protecting this vault on this device.
+            </ThemedText>
+          </View>
+          <Section title="Protection status">
+            <Card>
+              <StatusRow
+                label="Vault encryption"
+                value="XChaCha20-Poly1305"
+                active
+              />
+              <StatusRow
+                label="Data storage"
+                value="Local only"
+                active
+                divider
+              />
+              <StatusRow
+                label="Screen capture"
+                value="Blocked while open"
+                active
+                divider
+              />
+              <StatusRow
+                label="Background handling"
+                value="Locks immediately"
+                active
+                divider
+              />
+            </Card>
+          </Section>
+          <Section title="Authentication">
+            <Card>
+              <StatusRow
+                label="8-digit vault PIN"
+                value={pinSet ? "Enabled" : "Missing"}
+                active={pinSet}
+              />
+              {biometricAvailable && (
+                <View style={[styles.row, styles.divider]}>
+                  <View>
+                    <ThemedText style={styles.rowLabel}>
+                      Biometric unlock
+                    </ThemedText>
+                    <ThemedText style={styles.helper}>
+                      Uses the device biometric prompt only.
+                    </ThemedText>
+                  </View>
+                  <Switch
+                    value={biometricEnabled}
+                    onValueChange={(value) => void toggleBiometric(value)}
+                    trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
+                  />
+                </View>
+              )}
+              <Pressable
+                onPress={() => router.push("/change-pin")}
+                style={({ pressed }) => [
+                  styles.pinChangeButton,
+                  pressed && styles.pressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Change vault PIN"
+              >
+                <ThemedText style={styles.pinChangeText}>
+                  Change vault PIN
+                </ThemedText>
+                <ThemedText style={styles.pinChangeHelper}>
+                  Verify the current PIN before changing the unlock check.
+                </ThemedText>
+              </Pressable>
+            </Card>
+          </Section>
+          <Section title="Auto-lock">
+            <Card>
+              <ThemedText style={styles.helper}>
+                The vault always locks when the app leaves the foreground.
+                Choose the inactivity limit while it remains open.
+              </ThemedText>
+              <View style={styles.optionGrid}>
+                {lockOptions.map((option) => (
+                  <Pressable
+                    key={option.value}
+                    onPress={() => void chooseAutoLock(option.value)}
+                    style={[
+                      styles.option,
+                      autoLock === option.value && styles.optionSelected,
+                    ]}
+                  >
+                    <ThemedText
+                      style={[
+                        styles.optionText,
+                        autoLock === option.value && styles.optionTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </ThemedText>
+                  </Pressable>
+                ))}
+              </View>
+            </Card>
+          </Section>
+          <Section title="Private local reminders">
+            <Card>
+              <View style={styles.row}>
+                <View style={styles.reminderCopy}>
                   <ThemedText style={styles.rowLabel}>
-                    Biometric unlock
+                    Upcoming date reminders
                   </ThemedText>
-                  <ThemedText style={styles.helper}>
-                    Uses the device biometric prompt only.
+                  <ThemedText style={styles.helperInline}>
+                    The phone schedules generic local alerts 30 and 7 days
+                    before a renewal, expiry, or warranty date. Alerts never
+                    show product names, vendors, or licence details.
                   </ThemedText>
                 </View>
                 <Switch
-                  value={biometricEnabled}
-                  onValueChange={(value) => void toggleBiometric(value)}
+                  value={localRemindersEnabled}
+                  onValueChange={(value) => void toggleLocalReminders(value)}
                   trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
                 />
               </View>
-            )}
-            <Pressable
-              onPress={() => router.push("/change-pin")}
-              style={({ pressed }) => [
-                styles.pinChangeButton,
-                pressed && styles.pressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Change vault PIN"
-            >
-              <ThemedText style={styles.pinChangeText}>
-                Change vault PIN
-              </ThemedText>
-              <ThemedText style={styles.pinChangeHelper}>
-                Verify the current PIN before changing the unlock check.
-              </ThemedText>
-            </Pressable>
-          </Card>
-        </Section>
-        <Section title="Auto-lock">
-          <Card>
-            <ThemedText style={styles.helper}>
-              The vault always locks when the app leaves the foreground. Choose
-              the inactivity limit while it remains open.
-            </ThemedText>
-            <View style={styles.optionGrid}>
-              {lockOptions.map((option) => (
-                <Pressable
-                  key={option.value}
-                  onPress={() => void chooseAutoLock(option.value)}
-                  style={[
-                    styles.option,
-                    autoLock === option.value && styles.optionSelected,
-                  ]}
-                >
-                  <ThemedText
-                    style={[
-                      styles.optionText,
-                      autoLock === option.value && styles.optionTextSelected,
-                    ]}
-                  >
-                    {option.label}
-                  </ThemedText>
-                </Pressable>
-              ))}
-            </View>
-          </Card>
-        </Section>
-        <Section title="Private local reminders">
-          <Card>
-            <View style={styles.row}>
-              <View style={styles.reminderCopy}>
-                <ThemedText style={styles.rowLabel}>
-                  Upcoming date reminders
-                </ThemedText>
-                <ThemedText style={styles.helperInline}>
-                  The phone schedules generic local alerts 30 and 7 days before
-                  a renewal, expiry, or warranty date. Alerts never show product
-                  names, vendors, or licence details.
-                </ThemedText>
-              </View>
-              <Switch
-                value={localRemindersEnabled}
-                onValueChange={(value) => void toggleLocalReminders(value)}
-                trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
+              <StatusRow
+                label="Scheduled on this device"
+                value={`${scheduledReminderCount} generic alert${scheduledReminderCount === 1 ? "" : "s"}`}
+                active={localRemindersEnabled}
+                divider
               />
-            </View>
-            <StatusRow
-              label="Scheduled on this device"
-              value={`${scheduledReminderCount} generic alert${scheduledReminderCount === 1 ? "" : "s"}`}
-              active={localRemindersEnabled}
-              divider
-            />
-          </Card>
-        </Section>
-        <Section title="Vault health">
-          <Card>
-            <ThemedText style={styles.helper}>
-              Check the local SQLite structure and authenticate-read every
-              encrypted record. Nothing leaves this device.
-            </ThemedText>
-            {healthStatus && (
-              <ThemedText style={styles.healthStatus}>
-                {healthStatus}
+            </Card>
+          </Section>
+          <Section title="Vault health">
+            <Card>
+              <ThemedText style={styles.helper}>
+                Check the local SQLite structure and authenticate-read every
+                encrypted record. Nothing leaves this device.
               </ThemedText>
-            )}
-            <Pressable
-              disabled={checkingHealth}
-              onPress={() => void checkVaultHealth()}
-              style={({ pressed }) => [
-                styles.healthButton,
-                (pressed || checkingHealth) && styles.pressed,
-              ]}
-              accessibilityRole="button"
-            >
-              <ThemedText style={styles.healthButtonText}>
-                {checkingHealth
-                  ? "Checking vault…"
-                  : "Run local vault health check"}
+              {healthStatus && (
+                <ThemedText style={styles.healthStatus}>
+                  {healthStatus}
+                </ThemedText>
+              )}
+              <Pressable
+                disabled={checkingHealth}
+                onPress={() => void checkVaultHealth()}
+                style={({ pressed }) => [
+                  styles.healthButton,
+                  (pressed || checkingHealth) && styles.pressed,
+                ]}
+                accessibilityRole="button"
+              >
+                <ThemedText style={styles.healthButtonText}>
+                  {checkingHealth
+                    ? "Checking vault…"
+                    : "Run local vault health check"}
+                </ThemedText>
+              </Pressable>
+            </Card>
+          </Section>
+          <Section title="Local recovery snapshots">
+            <Card>
+              <ThemedText style={styles.helper}>
+                Keep up to {localSnapshotHistoryLimit()} encrypted recovery
+                points in this app’s private storage. Snapshots use a separate
+                local key, are never uploaded, and are removed with a permanent
+                vault wipe.
               </ThemedText>
-            </Pressable>
-          </Card>
-        </Section>
-        <Section title="Local recovery snapshots">
-          <Card>
-            <ThemedText style={styles.helper}>
-              Keep up to {localSnapshotHistoryLimit()} encrypted recovery points
-              in this app’s private storage. Snapshots use a separate local key,
-              are never uploaded, and are removed with a permanent vault wipe.
-            </ThemedText>
-            <StatusRow
-              label="Local recovery points"
-              value={`${snapshots.length} of ${localSnapshotHistoryLimit()}`}
-              active={snapshots.length > 0}
-              divider
-            />
-            {snapshots[0] && (
-              <ThemedText style={styles.snapshotInfo}>
-                Latest: {snapshots[0].recordCount} record
-                {snapshots[0].recordCount === 1 ? "" : "s"},{" "}
-                {snapshots[0].attachmentCount} attachment
-                {snapshots[0].attachmentCount === 1 ? "" : "s"} ·{" "}
-                {new Date(snapshots[0].createdAt).toLocaleString()}
-              </ThemedText>
-            )}
-            {snapshotStatus && (
-              <ThemedText style={styles.healthStatus}>
-                {snapshotStatus}
-              </ThemedText>
-            )}
-            <Pressable
-              disabled={snapshotWorking}
-              onPress={() =>
-                void createSnapshot("Manual owner-created recovery point")
-              }
-              style={({ pressed }) => [
-                styles.healthButton,
-                (pressed || snapshotWorking) && styles.pressed,
-              ]}
-              accessibilityRole="button"
-            >
-              <ThemedText style={styles.healthButtonText}>
-                {snapshotWorking
-                  ? "Working…"
-                  : "Create encrypted local snapshot"}
-              </ThemedText>
-            </Pressable>
-            {snapshots.length > 0 && (
+              <StatusRow
+                label="Local recovery points"
+                value={`${snapshots.length} of ${localSnapshotHistoryLimit()}`}
+                active={snapshots.length > 0}
+                divider
+              />
+              {snapshots[0] && (
+                <ThemedText style={styles.snapshotInfo}>
+                  Latest: {snapshots[0].recordCount} record
+                  {snapshots[0].recordCount === 1 ? "" : "s"},{" "}
+                  {snapshots[0].attachmentCount} attachment
+                  {snapshots[0].attachmentCount === 1 ? "" : "s"} ·{" "}
+                  {new Date(snapshots[0].createdAt).toLocaleString()}
+                </ThemedText>
+              )}
+              {snapshots[0] && snapshotAgeDays(snapshots[0].createdAt) > 7 && (
+                <ThemedText style={styles.snapshotWarning}>
+                  This recovery point is more than a week old. Create a fresh
+                  snapshot after important vault changes.
+                </ThemedText>
+              )}
+              {snapshotStatus && (
+                <ThemedText style={styles.healthStatus}>
+                  {snapshotStatus}
+                </ThemedText>
+              )}
               <Pressable
                 disabled={snapshotWorking}
-                onPress={restoreLatestSnapshot}
+                onPress={() =>
+                  void createSnapshot("Manual owner-created recovery point")
+                }
                 style={({ pressed }) => [
-                  styles.snapshotRestoreButton,
+                  styles.healthButton,
                   (pressed || snapshotWorking) && styles.pressed,
                 ]}
                 accessibilityRole="button"
               >
-                <ThemedText style={styles.snapshotRestoreText}>
-                  Restore latest local snapshot
+                <ThemedText style={styles.healthButtonText}>
+                  {snapshotWorking
+                    ? "Working…"
+                    : "Create encrypted local snapshot"}
                 </ThemedText>
               </Pressable>
-            )}
-          </Card>
-        </Section>
-        <Section title="Vault management">
-          <Card>
-            <StatusRow label="Encrypted records" value={String(productCount)} />
-            <ThemedText style={styles.transferHelper}>
-              Create a separately passphrase-protected transfer file for a new
-              device. The file remains unreadable until it is verified and
-              imported into another unlocked vault.
-            </ThemedText>
-            <Pressable onPress={transferVault} style={styles.transferButton}>
-              <ThemedText style={styles.transferButtonText}>
-                Transfer vault to another device
+              {snapshots.length > 0 && (
+                <Pressable
+                  disabled={snapshotWorking}
+                  onPress={restoreLatestSnapshot}
+                  style={({ pressed }) => [
+                    styles.snapshotRestoreButton,
+                    (pressed || snapshotWorking) && styles.pressed,
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <ThemedText style={styles.snapshotRestoreText}>
+                    Restore latest local snapshot
+                  </ThemedText>
+                </Pressable>
+              )}
+            </Card>
+          </Section>
+          <Section title="Security activity">
+            <Card>
+              <ThemedText style={styles.helper}>
+                The last {auditEvents.length} security events are encrypted
+                locally. Names, protected values, PINs, passphrases, and file
+                contents are never recorded.
+              </ThemedText>
+              {auditEvents.length === 0 ? (
+                <ThemedText style={styles.snapshotInfo}>
+                  No security events have been recorded yet.
+                </ThemedText>
+              ) : (
+                auditEvents.slice(0, 8).map((event) => (
+                  <View key={event.id} style={styles.auditRow}>
+                    <View style={styles.auditCopy}>
+                      <ThemedText style={styles.rowLabel}>
+                        {auditActionLabel(event.action)}
+                      </ThemedText>
+                      <ThemedText style={styles.helperInline}>
+                        {new Date(event.occurredAt).toLocaleString()}
+                        {event.detail ? ` · ${event.detail}` : ""}
+                      </ThemedText>
+                    </View>
+                    <ThemedText style={styles.auditOutcome}>
+                      {event.outcome}
+                    </ThemedText>
+                  </View>
+                ))
+              )}
+            </Card>
+          </Section>
+          <Section title="Vault management">
+            <Card>
+              <StatusRow
+                label="Encrypted records"
+                value={String(productCount)}
+              />
+              <ThemedText style={styles.transferHelper}>
+                Create a separately passphrase-protected transfer file for a new
+                device. The file remains unreadable until it is verified and
+                imported into another unlocked vault.
+              </ThemedText>
+              <Pressable
+                onPress={requestTransfer}
+                style={styles.transferButton}
+              >
+                <ThemedText style={styles.transferButtonText}>
+                  Transfer vault to another device
+                </ThemedText>
+              </Pressable>
+              <Pressable onPress={lockNow} style={styles.lockButton}>
+                <ThemedText style={styles.lockButtonText}>
+                  Lock vault now
+                </ThemedText>
+              </Pressable>
+            </Card>
+          </Section>
+          <Section title="Danger zone">
+            <Pressable
+              onPress={requestWipe}
+              style={({ pressed }) => [
+                styles.wipeButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText style={styles.wipeText}>
+                Wipe vault permanently
               </ThemedText>
             </Pressable>
-            <Pressable onPress={lockNow} style={styles.lockButton}>
-              <ThemedText style={styles.lockButtonText}>
-                Lock vault now
-              </ThemedText>
-            </Pressable>
-          </Card>
-        </Section>
-        <Section title="Danger zone">
-          <Pressable
-            onPress={wipeVault}
-            style={({ pressed }) => [
-              styles.wipeButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <ThemedText style={styles.wipeText}>
-              Wipe vault permanently
+            <ThemedText style={styles.warning}>
+              This action deletes all local encrypted records and access keys.
+              No cloud copy exists.
             </ThemedText>
-          </Pressable>
-          <ThemedText style={styles.warning}>
-            This action deletes all local encrypted records and access keys. No
-            cloud copy exists.
-          </ThemedText>
-        </Section>
-      </ScrollView>
-    </ThemedView>
+          </Section>
+        </ScrollView>
+      </ThemedView>
+      <SensitiveActionGate
+        visible={sensitiveAction !== null}
+        title={
+          sensitiveAction === "wipe"
+            ? "Verify before wiping"
+            : "Verify before transfer"
+        }
+        description={
+          sensitiveAction === "wipe"
+            ? "This extra check protects the permanent-wipe action. You will still need to confirm the deletion separately."
+            : "Verify that the unlocked vault owner is starting a device-transfer flow."
+        }
+        onCancel={() => setSensitiveAction(null)}
+        onAuthenticated={completeSensitiveAction}
+      />
+    </>
   );
+}
+
+function snapshotAgeDays(createdAt: string): number {
+  return Math.max(
+    0,
+    Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000),
+  );
+}
+
+function auditActionLabel(action: VaultAuditEvent["action"]): string {
+  const labels: Record<VaultAuditEvent["action"], string> = {
+    unlock: "PIN unlock",
+    "biometric-unlock": "Biometric unlock",
+    "pin-change": "PIN change",
+    "transfer-export": "Transfer export",
+    "transfer-import": "Transfer import",
+    "snapshot-create": "Snapshot creation",
+    "snapshot-restore": "Snapshot restore",
+    "attachment-integrity-check": "Attachment integrity check",
+    "vault-health-check": "Vault health check",
+    "vault-wipe": "Vault wipe",
+    "protected-value-copy": "Protected value copy",
+    "protected-attachment-open": "Protected attachment open",
+  };
+  return labels[action];
 }
 
 function Section({
@@ -775,6 +950,30 @@ const styles = StyleSheet.create({
     borderColor: "#FCA5A5",
   },
   wipeText: { color: "#B91C1C", fontWeight: "800" },
+  auditRow: {
+    minHeight: 58,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
+  },
+  auditCopy: { flex: 1 },
+  auditOutcome: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#0F766E",
+    textTransform: "uppercase",
+  },
+  snapshotWarning: {
+    paddingHorizontal: 15,
+    paddingBottom: 10,
+    color: "#B45309",
+    fontSize: 12,
+    lineHeight: 18,
+  },
   warning: { fontSize: 12, lineHeight: 18, opacity: 0.65, marginTop: 10 },
   pressed: { opacity: 0.65 },
 });

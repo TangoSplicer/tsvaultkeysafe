@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.8.0] — 2026-08-16
+
+### Added
+
+- **Encrypted local security activity:** Security events are stored in a bounded, encrypted local history using a dedicated HKDF subkey. The log records action categories and outcomes only; it never records record names, protected values, PINs, transfer passphrases, or file contents.
+- **Sensitive-action re-authentication:** PIN or enabled biometric verification is required immediately before copying protected values, opening decrypted attachment copies, starting a vault transfer, and entering the permanent-wipe confirmation flow.
+- **Transfer passphrase guidance:** Export now provides deterministic, on-device strength feedback based on length and character diversity while preserving the existing 16-character minimum and never storing the passphrase.
+- **Attachment integrity verification:** The local vault health check now authenticates managed attachment envelopes and ciphertext, reporting missing or corrupt attachment files.
+- **Snapshot freshness warning:** Security settings warns when the latest local recovery point is more than seven days old.
+- **Purpose-separated audit key:** The new HKDF context string `local-security-audit-log-encryption` derives a key distinct from database, attachment, and snapshot keys.
+
+### Changed
+
+- **Release metadata:** Updated the app to version 1.8.0 and Android versionCode 13.
+- Permanent vault wipe removes the local encrypted audit history together with records, attachments, snapshots, authentication material, and the vault key.
+
+### Privacy boundary
+
+- All new protections remain offline and device-local. No cloud audit service, account, analytics, remote recovery, or synchronization channel was added.
+
+---
+
 ## [1.7.0] — 2026-08-15
 
 ### Fixed

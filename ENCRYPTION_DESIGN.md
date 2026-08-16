@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-TSVaultKeySafe is an offline mobile vault for licences, credentials, identity references, financial references, recovery material, secure notes, and encrypted attachments. This document describes the cryptographic construction implemented in version 1.6.0, including authenticated records, encrypted attachments, encrypted local recovery snapshots, and owner-controlled encrypted transfer files. It does **not** describe a network protocol, cloud-sync design, key escrow, or hosted password-manager architecture because the application has none.
+TSVaultKeySafe is an offline mobile vault for licences, credentials, identity references, financial references, recovery material, secure notes, and encrypted attachments. This document describes the cryptographic construction implemented in version 1.8.0, including authenticated records, encrypted attachments, encrypted local recovery snapshots, encrypted local security events, and owner-controlled encrypted transfer files. It does **not** describe a network protocol, cloud-sync design, key escrow, or hosted password-manager architecture because the application has none.
 
 ## Cryptographic construction
 
@@ -12,6 +12,7 @@ TSVaultKeySafe is an offline mobile vault for licences, credentials, identity re
 | Database subkey derivation   | HKDF-SHA-256            | 256-bit master key, application-specific salt, distinct database purpose string.                |
 | Attachment subkey derivation | HKDF-SHA-256            | Same root key and salt, distinct attachment purpose string used for encrypted attachment blobs. |
 | Snapshot subkey derivation   | HKDF-SHA-256            | Same root key and salt, distinct local-recovery-snapshot purpose string.                        |
+| Audit subkey derivation      | HKDF-SHA-256            | Same root key and salt, distinct local-security-audit-log purpose string.                       |
 | PIN verification             | PBKDF2-HMAC-SHA-256     | 600,000 iterations, 256-bit random salt, 256-bit output, versioned verifier.                    |
 | Encrypted export key         | PBKDF2-HMAC-SHA-256     | 600,000 iterations, fresh 256-bit random salt, 256-bit output.                                  |
 | Randomness                   | `expo-crypto`           | Operating-system cryptographic random-byte source.                                              |
@@ -25,12 +26,13 @@ CSPRNG → 256-bit vault master key
              │
              ├── HKDF-SHA-256("database-encryption") → database record key
              ├── HKDF-SHA-256("attachment-encryption") → attachment-blob key
-             └── HKDF-SHA-256("local-recovery-snapshot-encryption") → local snapshot key
+             ├── HKDF-SHA-256("local-recovery-snapshot-encryption") → local snapshot key
+             └── HKDF-SHA-256("local-security-audit-log-encryption") → audit-log key
 ```
 
 The master key is created on first successful vault setup. It is represented as hexadecimal only while in application memory and is stored in Expo SecureStore with `WHEN_UNLOCKED_THIS_DEVICE_ONLY` accessibility. Expo documents that SecureStore uses Android Keystore-backed encrypted preferences on Android and Keychain Services on iOS. [2]
 
-The database, attachment, and local snapshot keys are never persisted separately. They are derived only when a session requires them. A PIN change replaces the PIN verifier; it does not rotate the vault key because the PIN is an access-control verifier, not an input to record encryption.
+The database, attachment, local snapshot, and audit-log keys are never persisted separately. They are derived only when a session requires them. A PIN change replaces the PIN verifier; it does not rotate the vault key because the PIN is an access-control verifier, not an input to record encryption.
 
 ## Record format and flow
 
@@ -106,6 +108,12 @@ The separate recovery guide contains only a file name, export date, format, reco
 Security settings can create up to three owner-controlled local recovery points in the app-private document directory. Each snapshot serializes the current secure items and managed attachment content, then encrypts the payload with the dedicated snapshot subkey using XChaCha20-Poly1305 and fixed snapshot AAD `tsvaultkeysafe-local-recovery-snapshot-v1`. Snapshot files are never uploaded or added to a transfer package.
 
 Restoring a snapshot creates a new encrypted safeguard snapshot first. If a restore fails after data replacement begins, the safeguard is used to attempt recovery of the immediately preceding vault state. Permanent vault wipe removes local snapshots along with managed attachment ciphertext, encrypted records, and secure-storage authentication material.
+
+## Encrypted local security audit
+
+Security activity is stored as a bounded encrypted event list in app-private document storage. Each rewrite uses XChaCha20-Poly1305 with the dedicated audit key and AAD `tsvaultkeysafe-local-security-audit-v1`. Events contain only a timestamp, a fixed action category, an outcome, and a short safe detail such as an attachment issue count. The service intentionally excludes record names, protected values, PINs, transfer passphrases, and file contents. Permanent vault wipe removes the audit directory.
+
+Sensitive actions use an in-app re-authentication gate backed by the existing progressive-lockout PIN verifier or enabled biometric prompt. The gate does not derive, rewrap, export, or replace the vault key; it only confirms the owner immediately before a protected operation.
 
 ## Security boundaries and residual risk
 

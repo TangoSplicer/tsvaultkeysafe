@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 
+import { SensitiveActionGate } from "@/components/sensitive-action-gate";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import {
@@ -27,6 +28,7 @@ import {
 } from "@/lib/database";
 import {
   requireVaultAttachmentKey,
+  requireVaultAuditKey,
   requireVaultDatabaseKey,
 } from "@/lib/vault-service";
 import {
@@ -39,6 +41,7 @@ import {
   secureRecordFieldLabels,
   vaultRecordTypes,
 } from "@/lib/vault-record-types";
+import { appendVaultAuditEvent, VaultAuditEvent } from "@/lib/vault-audit";
 
 const categories: ProductCategory[] = [
   "Software",
@@ -56,6 +59,11 @@ export default function ProductDetailScreen() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sensitiveAction, setSensitiveAction] = useState<
+    "copy" | "attachment" | null
+  >(null);
+  const [pendingAttachment, setPendingAttachment] =
+    useState<VaultAttachment | null>(null);
   const recordType = normalizeVaultRecordType(product?.recordType);
   const fieldLabels = secureRecordFieldLabels(recordType);
 
@@ -106,7 +114,16 @@ export default function ProductDetailScreen() {
     }
   };
 
-  const copyKey = async () => {
+  const logAudit = (
+    action: VaultAuditEvent["action"],
+    outcome: VaultAuditEvent["outcome"],
+  ) => {
+    void requireVaultAuditKey()
+      .then((key) => appendVaultAuditEvent(key, action, outcome))
+      .catch(() => undefined);
+  };
+
+  const performCopyKey = async () => {
     if (!product) return;
     await Clipboard.setStringAsync(product.licenseKey);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -114,10 +131,15 @@ export default function ProductDetailScreen() {
       if ((await Clipboard.getStringAsync()) === product.licenseKey)
         await Clipboard.setStringAsync("");
     }, 30_000);
+    logAudit("protected-value-copy", "succeeded");
     Alert.alert(
       "Copied securely",
       "The protected value will be cleared from the clipboard after 30 seconds if it has not changed.",
     );
+  };
+
+  const copyKey = () => {
+    setSensitiveAction("copy");
   };
 
   const addAttachment = async () => {
@@ -193,6 +215,33 @@ export default function ProductDetailScreen() {
     );
   };
 
+  const performShareAttachment = async (reference: VaultAttachment) => {
+    if (!product) return;
+    try {
+      const attachmentKey = await requireVaultAttachmentKey();
+      const temporaryFile = await decryptAttachmentToCache(
+        product.id,
+        reference,
+        attachmentKey,
+      );
+      if (!(await Sharing.isAvailableAsync()))
+        throw new Error("File sharing is unavailable on this device.");
+      await Sharing.shareAsync(temporaryFile.uri, {
+        dialogTitle: `Open ${reference.name}`,
+        mimeType: reference.mimeType,
+      });
+      logAudit("protected-attachment-open", "succeeded");
+    } catch (error) {
+      logAudit("protected-attachment-open", "failed");
+      Alert.alert(
+        "Unable to open attachment",
+        error instanceof Error
+          ? error.message
+          : "Try again while the vault remains unlocked.",
+      );
+    }
+  };
+
   const shareAttachmentForViewing = (reference: VaultAttachment) => {
     if (!product) return;
     Alert.alert(
@@ -202,28 +251,9 @@ export default function ProductDetailScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Open copy",
-          onPress: async () => {
-            try {
-              const attachmentKey = await requireVaultAttachmentKey();
-              const temporaryFile = await decryptAttachmentToCache(
-                product.id,
-                reference,
-                attachmentKey,
-              );
-              if (!(await Sharing.isAvailableAsync()))
-                throw new Error("File sharing is unavailable on this device.");
-              await Sharing.shareAsync(temporaryFile.uri, {
-                dialogTitle: `Open ${reference.name}`,
-                mimeType: reference.mimeType,
-              });
-            } catch (error) {
-              Alert.alert(
-                "Unable to open attachment",
-                error instanceof Error
-                  ? error.message
-                  : "Try again while the vault remains unlocked.",
-              );
-            }
+          onPress: () => {
+            setPendingAttachment(reference);
+            setSensitiveAction("attachment");
           },
         },
       ],
@@ -253,6 +283,16 @@ export default function ProductDetailScreen() {
     ]);
   };
 
+  const completeSensitiveAction = () => {
+    const action = sensitiveAction;
+    const attachment = pendingAttachment;
+    setSensitiveAction(null);
+    setPendingAttachment(null);
+    if (action === "copy") void performCopyKey();
+    if (action === "attachment" && attachment)
+      void performShareAttachment(attachment);
+  };
+
   if (loading || !product)
     return (
       <ThemedView style={styles.center}>
@@ -260,282 +300,311 @@ export default function ProductDetailScreen() {
       </ThemedView>
     );
   return (
-    <ThemedView
-      style={[styles.container, { paddingTop: Math.max(insets.top + 10, 28) }]}
-    >
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: Math.max(insets.bottom + 138, 158) },
+    <>
+      <ThemedView
+        style={[
+          styles.container,
+          { paddingTop: Math.max(insets.top + 10, 28) },
         ]}
-        keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.header}>
-          <ThemedText type="title">Secure item details</ThemedText>
-          <ThemedText style={styles.subtitle}>
-            Edit the encrypted record below. All fields remain local to this
-            device.
-          </ThemedText>
-        </View>
-        <ThemedText style={styles.label}>Secure item type</ThemedText>
-        <View style={styles.categoryGrid} accessibilityRole="radiogroup">
-          {vaultRecordTypes.map((recordTypeOption) => (
-            <Pressable
-              key={recordTypeOption.type}
-              onPress={() => update("recordType", recordTypeOption.type)}
-              style={[
-                styles.category,
-                recordType === recordTypeOption.type && styles.categorySelected,
-              ]}
-              accessibilityRole="radio"
-              accessibilityState={{
-                selected: recordType === recordTypeOption.type,
-              }}
-              accessibilityLabel={recordTypeOption.label}
-            >
-              <ThemedText
-                style={[
-                  styles.categoryText,
-                  recordType === recordTypeOption.type &&
-                    styles.categoryTextSelected,
-                ]}
-              >
-                {recordTypeOption.label}
-              </ThemedText>
-            </Pressable>
-          ))}
-        </View>
-        <ThemedText style={styles.recordTypeHelper}>
-          Avoid storing payment-card PINs, security codes, or one-time
-          authentication codes.
-        </ThemedText>
-        <Field
-          label={fieldLabels.title}
-          value={product.name}
-          onChangeText={(value) => update("name", value)}
-          required
-        />
-        <Field
-          label={fieldLabels.provider}
-          value={product.vendor}
-          onChangeText={(value) => update("vendor", value)}
-          required
-        />
-        <Field
-          label={fieldLabels.primaryLabel}
-          value={product.licenseKey}
-          onChangeText={(value) => update("licenseKey", value)}
-          placeholder={fieldLabels.primaryPlaceholder}
-          multiline
-          autoCapitalize="none"
-          required
-        />
-        <Pressable
-          onPress={() => void copyKey()}
-          style={({ pressed }) => [
-            styles.copyButton,
-            pressed && styles.pressed,
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: Math.max(insets.bottom + 138, 158) },
           ]}
+          keyboardShouldPersistTaps="handled"
         >
-          <ThemedText style={styles.copyText}>
-            Copy protected value for 30 seconds
-          </ThemedText>
-        </Pressable>
-        <Field
-          label={fieldLabels.secondaryLabel}
-          value={product.serialNumber ?? ""}
-          onChangeText={(value) => update("serialNumber", value || undefined)}
-          placeholder={fieldLabels.secondaryPlaceholder}
-          autoCapitalize="none"
-        />
-        <ThemedText style={styles.label}>Category</ThemedText>
-        <View style={styles.categoryGrid}>
-          {categories.map((category) => (
-            <Pressable
-              key={category}
-              onPress={() => update("category", category)}
-              style={[
-                styles.category,
-                product.category === category && styles.categorySelected,
-              ]}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: product.category === category }}
-              accessibilityLabel={`${category} category`}
-            >
-              <ThemedText
+          <View style={styles.header}>
+            <ThemedText type="title">Secure item details</ThemedText>
+            <ThemedText style={styles.subtitle}>
+              Edit the encrypted record below. All fields remain local to this
+              device.
+            </ThemedText>
+          </View>
+          <ThemedText style={styles.label}>Secure item type</ThemedText>
+          <View style={styles.categoryGrid} accessibilityRole="radiogroup">
+            {vaultRecordTypes.map((recordTypeOption) => (
+              <Pressable
+                key={recordTypeOption.type}
+                onPress={() => update("recordType", recordTypeOption.type)}
                 style={[
-                  styles.categoryText,
-                  product.category === category && styles.categoryTextSelected,
+                  styles.category,
+                  recordType === recordTypeOption.type &&
+                    styles.categorySelected,
                 ]}
+                accessibilityRole="radio"
+                accessibilityState={{
+                  selected: recordType === recordTypeOption.type,
+                }}
+                accessibilityLabel={recordTypeOption.label}
               >
-                {category}
+                <ThemedText
+                  style={[
+                    styles.categoryText,
+                    recordType === recordTypeOption.type &&
+                      styles.categoryTextSelected,
+                  ]}
+                >
+                  {recordTypeOption.label}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+          <ThemedText style={styles.recordTypeHelper}>
+            Avoid storing payment-card PINs, security codes, or one-time
+            authentication codes.
+          </ThemedText>
+          <Field
+            label={fieldLabels.title}
+            value={product.name}
+            onChangeText={(value) => update("name", value)}
+            required
+          />
+          <Field
+            label={fieldLabels.provider}
+            value={product.vendor}
+            onChangeText={(value) => update("vendor", value)}
+            required
+          />
+          <Field
+            label={fieldLabels.primaryLabel}
+            value={product.licenseKey}
+            onChangeText={(value) => update("licenseKey", value)}
+            placeholder={fieldLabels.primaryPlaceholder}
+            multiline
+            autoCapitalize="none"
+            required
+          />
+          <Pressable
+            onPress={() => void copyKey()}
+            style={({ pressed }) => [
+              styles.copyButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <ThemedText style={styles.copyText}>
+              Copy protected value for 30 seconds
+            </ThemedText>
+          </Pressable>
+          <Field
+            label={fieldLabels.secondaryLabel}
+            value={product.serialNumber ?? ""}
+            onChangeText={(value) => update("serialNumber", value || undefined)}
+            placeholder={fieldLabels.secondaryPlaceholder}
+            autoCapitalize="none"
+          />
+          <ThemedText style={styles.label}>Category</ThemedText>
+          <View style={styles.categoryGrid}>
+            {categories.map((category) => (
+              <Pressable
+                key={category}
+                onPress={() => update("category", category)}
+                style={[
+                  styles.category,
+                  product.category === category && styles.categorySelected,
+                ]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: product.category === category }}
+                accessibilityLabel={`${category} category`}
+              >
+                <ThemedText
+                  style={[
+                    styles.categoryText,
+                    product.category === category &&
+                      styles.categoryTextSelected,
+                  ]}
+                >
+                  {category}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+          <Field
+            label="Purchase date"
+            value={product.purchaseDate ?? ""}
+            onChangeText={(value) => update("purchaseDate", value || undefined)}
+            placeholder="YYYY-MM-DD"
+            keyboardType="numbers-and-punctuation"
+          />
+          <Field
+            label="Expiry date"
+            value={product.expiryDate ?? ""}
+            onChangeText={(value) => update("expiryDate", value || undefined)}
+            placeholder="YYYY-MM-DD"
+            keyboardType="numbers-and-punctuation"
+          />
+          <Field
+            label="Renewal date"
+            value={product.renewalDate ?? ""}
+            onChangeText={(value) => update("renewalDate", value || undefined)}
+            placeholder="YYYY-MM-DD"
+            keyboardType="numbers-and-punctuation"
+          />
+          <Field
+            label="Warranty expiry date"
+            value={product.warrantyExpiryDate ?? ""}
+            onChangeText={(value) =>
+              update("warrantyExpiryDate", value || undefined)
+            }
+            placeholder="YYYY-MM-DD"
+            keyboardType="numbers-and-punctuation"
+          />
+          <Field
+            label="Tags"
+            value={(product.tags ?? []).join(", ")}
+            onChangeText={(value) =>
+              update(
+                "tags",
+                value
+                  .split(",")
+                  .map((tag) => tag.trim())
+                  .filter(Boolean),
+              )
+            }
+            placeholder="e.g. work, annual, design"
+          />
+          <Field
+            label="Private notes"
+            value={product.notes ?? ""}
+            onChangeText={(value) => update("notes", value || undefined)}
+            multiline
+          />
+          <View style={styles.switchRow}>
+            <View>
+              <ThemedText style={styles.label}>Favourite</ThemedText>
+              <ThemedText style={styles.helper}>
+                Keep this record at the top of your private list.
+              </ThemedText>
+            </View>
+            <Switch
+              value={product.isFavorite}
+              onValueChange={(value) => update("isFavorite", value)}
+              accessibilityLabel="Mark product as favourite"
+              trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
+            />
+          </View>
+          <View style={styles.switchRow}>
+            <View>
+              <ThemedText style={styles.label}>Archived</ThemedText>
+              <ThemedText style={styles.helper}>
+                Hide from your active vault list.
+              </ThemedText>
+            </View>
+            <Switch
+              value={product.isArchived}
+              onValueChange={(value) => update("isArchived", value)}
+              accessibilityLabel="Archive product"
+              trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
+            />
+          </View>
+          <View style={styles.attachmentCard}>
+            <ThemedText style={styles.label}>Encrypted attachments</ThemedText>
+            <ThemedText style={styles.helper}>
+              Receipts and warranty files are encrypted with a separate vault
+              attachment key. Maximum 8 MB per file.
+            </ThemedText>
+            {(product.attachments ?? []).map((attachment) => (
+              <View key={attachment.id} style={styles.attachmentRow}>
+                <View style={styles.attachmentInfo}>
+                  <ThemedText style={styles.attachmentName} numberOfLines={1}>
+                    {attachment.name}
+                  </ThemedText>
+                  <ThemedText style={styles.attachmentMeta}>
+                    {Math.ceil(attachment.size / 1024)} KB · encrypted
+                  </ThemedText>
+                </View>
+                <Pressable
+                  onPress={() => shareAttachmentForViewing(attachment)}
+                  accessibilityLabel={`Open encrypted attachment ${attachment.name}`}
+                >
+                  <ThemedText style={styles.attachmentAction}>Open</ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={() => removeAttachment(attachment)}
+                  accessibilityLabel={`Remove encrypted attachment ${attachment.name}`}
+                >
+                  <ThemedText style={styles.removeAttachment}>
+                    Remove
+                  </ThemedText>
+                </Pressable>
+              </View>
+            ))}
+            <Pressable
+              disabled={saving || (product.attachments?.length ?? 0) >= 12}
+              onPress={() => void addAttachment()}
+              style={({ pressed }) => [
+                styles.attachmentButton,
+                (pressed || saving) && styles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <ThemedText style={styles.attachmentButtonText}>
+                Add encrypted attachment
               </ThemedText>
             </Pressable>
-          ))}
-        </View>
-        <Field
-          label="Purchase date"
-          value={product.purchaseDate ?? ""}
-          onChangeText={(value) => update("purchaseDate", value || undefined)}
-          placeholder="YYYY-MM-DD"
-          keyboardType="numbers-and-punctuation"
-        />
-        <Field
-          label="Expiry date"
-          value={product.expiryDate ?? ""}
-          onChangeText={(value) => update("expiryDate", value || undefined)}
-          placeholder="YYYY-MM-DD"
-          keyboardType="numbers-and-punctuation"
-        />
-        <Field
-          label="Renewal date"
-          value={product.renewalDate ?? ""}
-          onChangeText={(value) => update("renewalDate", value || undefined)}
-          placeholder="YYYY-MM-DD"
-          keyboardType="numbers-and-punctuation"
-        />
-        <Field
-          label="Warranty expiry date"
-          value={product.warrantyExpiryDate ?? ""}
-          onChangeText={(value) =>
-            update("warrantyExpiryDate", value || undefined)
-          }
-          placeholder="YYYY-MM-DD"
-          keyboardType="numbers-and-punctuation"
-        />
-        <Field
-          label="Tags"
-          value={(product.tags ?? []).join(", ")}
-          onChangeText={(value) =>
-            update(
-              "tags",
-              value
-                .split(",")
-                .map((tag) => tag.trim())
-                .filter(Boolean),
-            )
-          }
-          placeholder="e.g. work, annual, design"
-        />
-        <Field
-          label="Private notes"
-          value={product.notes ?? ""}
-          onChangeText={(value) => update("notes", value || undefined)}
-          multiline
-        />
-        <View style={styles.switchRow}>
-          <View>
-            <ThemedText style={styles.label}>Favourite</ThemedText>
-            <ThemedText style={styles.helper}>
-              Keep this record at the top of your private list.
+          </View>
+          <View style={styles.meta}>
+            <ThemedText style={styles.metaText}>
+              Created {new Date(product.createdAt).toLocaleDateString()}
+            </ThemedText>
+            <ThemedText style={styles.metaText}>
+              Updated {new Date(product.updatedAt).toLocaleDateString()}
             </ThemedText>
           </View>
-          <Switch
-            value={product.isFavorite}
-            onValueChange={(value) => update("isFavorite", value)}
-            accessibilityLabel="Mark product as favourite"
-            trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
-          />
-        </View>
-        <View style={styles.switchRow}>
-          <View>
-            <ThemedText style={styles.label}>Archived</ThemedText>
-            <ThemedText style={styles.helper}>
-              Hide from your active vault list.
-            </ThemedText>
-          </View>
-          <Switch
-            value={product.isArchived}
-            onValueChange={(value) => update("isArchived", value)}
-            accessibilityLabel="Archive product"
-            trackColor={{ false: "#94A3B8", true: "#14B8A6" }}
-          />
-        </View>
-        <View style={styles.attachmentCard}>
-          <ThemedText style={styles.label}>Encrypted attachments</ThemedText>
-          <ThemedText style={styles.helper}>
-            Receipts and warranty files are encrypted with a separate vault
-            attachment key. Maximum 8 MB per file.
-          </ThemedText>
-          {(product.attachments ?? []).map((attachment) => (
-            <View key={attachment.id} style={styles.attachmentRow}>
-              <View style={styles.attachmentInfo}>
-                <ThemedText style={styles.attachmentName} numberOfLines={1}>
-                  {attachment.name}
-                </ThemedText>
-                <ThemedText style={styles.attachmentMeta}>
-                  {Math.ceil(attachment.size / 1024)} KB · encrypted
-                </ThemedText>
-              </View>
-              <Pressable
-                onPress={() => shareAttachmentForViewing(attachment)}
-                accessibilityLabel={`Open encrypted attachment ${attachment.name}`}
-              >
-                <ThemedText style={styles.attachmentAction}>Open</ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={() => removeAttachment(attachment)}
-                accessibilityLabel={`Remove encrypted attachment ${attachment.name}`}
-              >
-                <ThemedText style={styles.removeAttachment}>Remove</ThemedText>
-              </Pressable>
-            </View>
-          ))}
           <Pressable
-            disabled={saving || (product.attachments?.length ?? 0) >= 12}
-            onPress={() => void addAttachment()}
+            onPress={remove}
             style={({ pressed }) => [
-              styles.attachmentButton,
-              (pressed || saving) && styles.pressed,
+              styles.deleteButton,
+              pressed && styles.pressed,
             ]}
             accessibilityRole="button"
+            accessibilityLabel={`Delete ${product.name}`}
+            accessibilityHint="Permanently deletes this encrypted record and its managed attachments after confirmation."
           >
-            <ThemedText style={styles.attachmentButtonText}>
-              Add encrypted attachment
+            <ThemedText style={styles.deleteText}>
+              Delete this product
+            </ThemedText>
+          </Pressable>
+        </ScrollView>
+        <View
+          style={[
+            styles.footer,
+            { paddingBottom: Math.max(insets.bottom + 14, 22) },
+          ]}
+        >
+          <Pressable
+            onPress={() => void save()}
+            disabled={saving}
+            style={({ pressed }) => [
+              styles.saveButton,
+              (pressed || saving) && styles.pressed,
+            ]}
+          >
+            <ThemedText style={styles.saveText}>
+              {saving ? "Encrypting…" : "Save changes"}
             </ThemedText>
           </Pressable>
         </View>
-        <View style={styles.meta}>
-          <ThemedText style={styles.metaText}>
-            Created {new Date(product.createdAt).toLocaleDateString()}
-          </ThemedText>
-          <ThemedText style={styles.metaText}>
-            Updated {new Date(product.updatedAt).toLocaleDateString()}
-          </ThemedText>
-        </View>
-        <Pressable
-          onPress={remove}
-          style={({ pressed }) => [
-            styles.deleteButton,
-            pressed && styles.pressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={`Delete ${product.name}`}
-          accessibilityHint="Permanently deletes this encrypted record and its managed attachments after confirmation."
-        >
-          <ThemedText style={styles.deleteText}>Delete this product</ThemedText>
-        </Pressable>
-      </ScrollView>
-      <View
-        style={[
-          styles.footer,
-          { paddingBottom: Math.max(insets.bottom + 14, 22) },
-        ]}
-      >
-        <Pressable
-          onPress={() => void save()}
-          disabled={saving}
-          style={({ pressed }) => [
-            styles.saveButton,
-            (pressed || saving) && styles.pressed,
-          ]}
-        >
-          <ThemedText style={styles.saveText}>
-            {saving ? "Encrypting…" : "Save changes"}
-          </ThemedText>
-        </Pressable>
-      </View>
-    </ThemedView>
+      </ThemedView>
+      <SensitiveActionGate
+        visible={sensitiveAction !== null}
+        title={
+          sensitiveAction === "copy"
+            ? "Verify before copying"
+            : "Verify before opening"
+        }
+        description={
+          sensitiveAction === "copy"
+            ? "Confirm the unlocked vault owner before placing a protected value on the clipboard."
+            : "Confirm the unlocked vault owner before creating a temporary readable attachment copy."
+        }
+        onCancel={() => {
+          setSensitiveAction(null);
+          setPendingAttachment(null);
+        }}
+        onAuthenticated={completeSensitiveAction}
+      />
+    </>
   );
 }
 

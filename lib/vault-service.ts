@@ -23,3 +23,7 @@ export async function requireVaultAttachmentKey(): Promise<string> {
 export async function requireVaultSnapshotKey(): Promise<string> {
   return (await requireVaultKeys()).snapshotKey;
 }
+
+export async function requireVaultAuditKey(): Promise<string> {
+  return (await requireVaultKeys()).auditKey;
+}
