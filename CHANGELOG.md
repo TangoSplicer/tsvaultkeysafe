@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.9.0] — 2026-08-16
+
+### Added
+
+- **Security-service test coverage:** Added integration-oriented Jest coverage for encrypted local audit logging, managed attachment integrity checks, attachment cleanup, transfer passphrase strength classification, and passphrase validation boundaries using isolated Expo service mocks.
+- **Dependency hardening:** Applied pnpm workspace overrides for vulnerable transitive Expo, Metro, React Native tooling, XML, WebSocket, YAML, glob-matching, and parser packages where patched registry releases are available.
+
+### Changed
+
+- **Release metadata:** Updated the app to version 1.9.0 and Android versionCode 14.
+- **Coverage scope:** Jest coverage now measures the production `lib/**/*.ts` security and vault services rather than the obsolete `src` path.
+- **Native validation:** Confirmed Expo dependency alignment and clean Android prebuild compatibility after applying the dependency overrides.
+
+### Security note
+
+- The production dependency audit is reduced to one moderate and two high transitive `image-size` advisories in Expo/Metro build tooling. The registry currently has no patched `image-size` 2.x release, so no invalid override was retained. The package is not part of the vault runtime bundle; the remaining issue should be rechecked when Expo/Metro publishes a compatible patched version.
+
+### Privacy boundary
+
+- All changes remain strictly offline and device-local. No cloud storage, account, analytics, remote recovery, telemetry, or synchronization channel was added.
+
+---
+
 ## [1.8.0] — 2026-08-16
 
 ### Added
