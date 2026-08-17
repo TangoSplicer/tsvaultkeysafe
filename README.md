@@ -80,7 +80,7 @@ TSVaultKeySafe does not create an account, upload a vault, synchronize automatic
 
 ## Release notes
 
-This repository targets version **1.8.1** on Expo SDK 54 and React Native 0.81. The Android workflow builds a self-contained release APK, confirms the embedded JavaScript bundle, verifies Android 16 KB page-size alignment, and checks that the reviewed Metro `image-size` dependency patch is active. Before app-store publication, validate setup, lock/unlock, PIN rotation, secure-item entry and filtering, transfer, attachment, local snapshot, reminder, and health-check flows on physical devices; complete export-compliance questions accurately; and rerun the dependency and threat-model review.
+This repository targets version **1.9.1** on Expo SDK 54 and React Native 0.81. The Android workflow builds a self-contained release APK, confirms the embedded JavaScript bundle, verifies Android 16 KB page-size alignment, and checks that the reviewed Metro `image-size` dependency patch is active. Before app-store publication, validate setup, lock/unlock, PIN rotation, secure-item entry and filtering, transfer, attachment, local snapshot, reminder, and health-check flows on physical devices; complete export-compliance questions accurately; and rerun the dependency and threat-model review.
 
 ## References
 

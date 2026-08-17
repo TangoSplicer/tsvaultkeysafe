@@ -1,4 +1,6 @@
 const files = new Map<string, string>();
+/* eslint-disable import/first */
+
 const directories = new Set<string>();
 
 type Parent = { path: string };
