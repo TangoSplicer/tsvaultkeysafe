@@ -1,7 +1,7 @@
 {
   "name": "tsvaultkeysafe",
   "private": true,
-  "version": "1.9.0",
+  "version": "1.8.1",
   "packageManager": "pnpm@11.21.0",
   "engines": {
     "node": ">=24 <25",
@@ -18,7 +18,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "coverage": "jest --coverage",
-    "verify": "eslint . && tsc --noEmit && jest --runInBand"
+    "verify:dependency-patches": "node scripts/verify-image-size-patch.cjs",
+    "verify": "pnpm run verify:dependency-patches && eslint . && tsc --noEmit && jest --runInBand"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",
@@ -26,18 +27,18 @@
     "@noble/ciphers": "1.3.0",
     "@noble/hashes": "1.6.1",
     "@react-navigation/native": "^7.1.8",
-    "expo": "~54.0.36",
+    "expo": "~54.0.37",
     "expo-clipboard": "~8.0.8",
-    "expo-constants": "~18.0.13",
+    "expo-constants": "~18.0.14",
     "expo-crypto": "~15.0.9",
     "expo-document-picker": "~14.0.8",
-    "expo-file-system": "~19.0.23",
+    "expo-file-system": "~19.0.24",
     "expo-haptics": "~15.0.8",
     "expo-linking": "~8.0.12",
-    "expo-local-authentication": "~17.0.8",
+    "expo-local-authentication": "~17.0.9",
     "expo-notifications": "~0.32.17",
     "expo-router": "^6.0.24",
-    "expo-screen-capture": "~8.0.9",
+    "expo-screen-capture": "~8.0.10",
     "expo-secure-store": "~15.0.8",
     "expo-sharing": "~14.0.8",
     "expo-splash-screen": "~31.0.13",

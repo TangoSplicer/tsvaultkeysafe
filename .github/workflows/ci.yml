@@ -40,6 +40,9 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify dependency security patches
+        run: pnpm run verify:dependency-patches
+
       - name: Lint
         run: pnpm run lint
 

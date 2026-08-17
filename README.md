@@ -59,10 +59,13 @@ pnpm start
 Use a development build or simulator for biometric and screen-capture controls. Expo Go does not provide the complete SecureStore biometric configuration required for a release build. [3]
 
 ```bash
+# Verify applied dependency security patches
+pnpm run verify:dependency-patches
+
 # Strict TypeScript validation
 ./node_modules/.bin/tsc --noEmit
 
-# Crypto and PIN policy tests
+# Crypto, PIN policy, and Metro asset-parser regression tests
 ./node_modules/.bin/jest --runInBand
 
 # Linting
@@ -77,7 +80,7 @@ TSVaultKeySafe does not create an account, upload a vault, synchronize automatic
 
 ## Release notes
 
-This repository targets version **1.6.0** on Expo SDK 54 and React Native 0.81. The Android workflow builds a self-contained release APK, confirms the embedded JavaScript bundle, and verifies Android 16 KB page-size alignment. Before app-store publication, validate setup, lock/unlock, PIN rotation, secure-item entry and filtering, transfer, attachment, local snapshot, reminder, and health-check flows on physical devices; complete export-compliance questions accurately; and rerun the dependency and threat-model review.
+This repository targets version **1.8.1** on Expo SDK 54 and React Native 0.81. The Android workflow builds a self-contained release APK, confirms the embedded JavaScript bundle, verifies Android 16 KB page-size alignment, and checks that the reviewed Metro `image-size` dependency patch is active. Before app-store publication, validate setup, lock/unlock, PIN rotation, secure-item entry and filtering, transfer, attachment, local snapshot, reminder, and health-check flows on physical devices; complete export-compliance questions accurately; and rerun the dependency and threat-model review.
 
 ## References
 

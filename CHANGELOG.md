@@ -6,26 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [1.9.0] — 2026-08-16
+## [1.8.1] — 2026-08-17
+
+### Fixed
+
+- **Metro ICNS asset parsing:** Applied a reproducible pnpm patch to the transitive `image-size@1.2.1` build-tool dependency. The parser now rejects malformed ICNS records with non-finite or undersized entry lengths before offset advancement, preventing the zero-length-entry denial-of-service loop during recognised-image asset processing.
 
 ### Added
 
-- **Security-service test coverage:** Added integration-oriented Jest coverage for encrypted local audit logging, managed attachment integrity checks, attachment cleanup, transfer passphrase strength classification, and passphrase validation boundaries using isolated Expo service mocks.
-- **Dependency hardening:** Applied pnpm workspace overrides for vulnerable transitive Expo, Metro, React Native tooling, XML, WebSocket, YAML, glob-matching, and parser packages where patched registry releases are available.
+- **Dependency-patch verification:** Added `pnpm run verify:dependency-patches` to confirm the expected package version, registered patch, and installed ICNS guard. GitHub Actions now runs this verification before source validation.
+- **Bounded Metro regression tests:** Added process-isolated tests that send crafted ICNS and JXL payloads through Metro's recognised-image path and require bounded completion rather than a hang.
+- **Compatible transitive security updates:** Applied pnpm workspace overrides for patched Expo, Metro, React Native, XML, WebSocket, YAML, glob-matching, parser, and utility dependencies. A direct `fast-xml-parser@^5.7.0` override removes the remaining compatible production advisory while clean Expo Android prebuild validation confirms the graph remains usable.
 
 ### Changed
 
-- **Release metadata:** Updated the app to version 1.9.0 and Android versionCode 14.
-- **Coverage scope:** Jest coverage now measures the production `lib/**/*.ts` security and vault services rather than the obsolete `src` path.
-- **Native validation:** Confirmed Expo dependency alignment and clean Android prebuild compatibility after applying the dependency overrides.
+- **Release metadata:** Updated the app to version 1.8.1 and Android versionCode 14.
 
 ### Security note
 
-- The production dependency audit is reduced to one moderate and two high transitive `image-size` advisories in Expo/Metro build tooling. The registry currently has no patched `image-size` 2.x release, so no invalid override was retained. The package is not part of the vault runtime bundle; the remaining issue should be rechecked when Expo/Metro publishes a compatible patched version.
+- Dependency scanners may continue to report the two upstream `image-size` advisories because they inspect the package version rather than the local ICNS patch and bundled zero-length-box guard. The patch and regression tests remain required until Metro adopts an official maintained replacement or a published non-vulnerable dependency release.
 
 ### Privacy boundary
 
-- All changes remain strictly offline and device-local. No cloud storage, account, analytics, remote recovery, telemetry, or synchronization channel was added.
+- The mitigation affects only local build tooling. It adds no network service, account, telemetry, analytics, cloud storage, or runtime data collection.
 
 ---
 
