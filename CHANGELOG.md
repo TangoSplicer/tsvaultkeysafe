@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.10.0] — 2026-08-19
+
+### Added
+
+- **Authenticated migration preview:** Transfer imports now authenticate the encrypted payload and passphrase before showing a verified record, attachment, filename, and fingerprint preview. No database mutation occurs until the user confirms the preview.
+- **Non-destructive duress PIN:** Added a separate device-only duress verifier. Entering it at unlock fails closed without starting a vault session or deleting records; configuring or removing it requires sensitive-action re-authentication.
+- **Attachment cache lifecycle:** Decrypted attachment copies shared for viewing now receive a bounded five-minute cleanup schedule.
+- **Expanded security transparency:** The Security hub can show the complete bounded encrypted audit history and links to an in-app security model describing recovery, clipboard, attachment, device, and operating-system boundaries.
+- **Regression coverage:** Added duress-PIN separation and one-shot trigger tests, temporary attachment cleanup tests, and authenticated migration-preview coverage through the existing transfer path.
+
+### Changed
+
+- **Release metadata:** Updated the app to version 1.10.0 and Android versionCode 16.
+- **Offline boundary:** All new behavior remains device-local and adds no account, cloud, analytics, synchronization, or remote recovery service.
+
+### Security note
+
+- The duress PIN is intentionally non-destructive and is not a decoy vault. Android applications receiving shared decrypted attachments may retain their own copies; the app only controls its temporary local cache copy.
+
+---
+
 ## [1.9.1] — 2026-08-17
 
 ### Fixed

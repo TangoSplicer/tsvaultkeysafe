@@ -33,6 +33,7 @@ import {
 } from "@/lib/vault-service";
 import {
   decryptAttachmentToCache,
+  scheduleTemporaryAttachmentCleanup,
   deleteEncryptedAttachment,
   selectAndEncryptAttachment,
 } from "@/lib/vault-attachments";
@@ -230,6 +231,7 @@ export default function ProductDetailScreen() {
         dialogTitle: `Open ${reference.name}`,
         mimeType: reference.mimeType,
       });
+      scheduleTemporaryAttachmentCleanup(temporaryFile);
       logAudit("protected-attachment-open", "succeeded");
     } catch (error) {
       logAudit("protected-attachment-open", "failed");

@@ -194,6 +194,24 @@ export async function selectAndEncryptAttachment(
   return metadata;
 }
 
+interface TemporaryReadableFile {
+  readonly exists: boolean;
+  delete(): void;
+}
+
+export function scheduleTemporaryAttachmentCleanup(
+  temporaryFile: TemporaryReadableFile,
+  delayMs = 5 * 60_000,
+): ReturnType<typeof setTimeout> {
+  return setTimeout(() => {
+    try {
+      if (temporaryFile.exists) temporaryFile.delete();
+    } catch {
+      // Cleanup is best effort; the encrypted source remains authoritative.
+    }
+  }, delayMs);
+}
+
 export async function decryptAttachmentToCache(
   productId: string,
   reference: VaultAttachment,

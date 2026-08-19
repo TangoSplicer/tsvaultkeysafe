@@ -9,6 +9,7 @@ import {
   getAllProducts,
   getEncryptedExportSummary,
   importEncryptedExport,
+  inspectEncryptedExport,
   VaultExportSummary,
 } from "./database";
 import {
@@ -27,6 +28,11 @@ export {
 } from "./transfer-strength";
 
 const MAX_TRANSFER_FILE_BYTES = 64 * 1024 * 1024;
+
+export interface VaultTransferPreview {
+  fileName: string;
+  summary: VaultExportSummary;
+}
 
 export interface VaultTransferResult {
   recordCount: number;
@@ -217,6 +223,7 @@ export async function selectAndImportVaultTransfer(
   vaultKey: string,
   attachmentKey: string,
   passphrase: string,
+  confirmImport?: (preview: VaultTransferPreview) => Promise<boolean>,
 ): Promise<VaultTransferResult | null> {
   if (!validateTransferPassphrase(passphrase)) {
     throw new Error(
@@ -244,6 +251,16 @@ export async function selectAndImportVaultTransfer(
   }
 
   const summary = getEncryptedExportSummary(serializedTransfer);
+  const verifiedSummary = await inspectEncryptedExport(
+    serializedTransfer,
+    passphrase,
+  );
+  if (
+    confirmImport &&
+    !(await confirmImport({ fileName: asset.name, summary: verifiedSummary }))
+  ) {
+    return null;
+  }
   let imported;
   try {
     imported = await importEncryptedExport(
@@ -272,6 +289,6 @@ export async function selectAndImportVaultTransfer(
   }
   return {
     recordCount: imported.recordCount,
-    summary: { ...summary, attachmentCount: imported.attachmentCount },
+    summary: { ...verifiedSummary, attachmentCount: imported.attachmentCount },
   };
 }

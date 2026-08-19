@@ -81,11 +81,17 @@ jest.mock("expo-crypto", () => ({
   getRandomBytes: (length: number) =>
     Uint8Array.from({ length }, (_, i) => i + 1),
 }));
+jest.mock("expo-local-authentication", () => ({
+  hasHardwareAsync: async () => false,
+  isEnrolledAsync: async () => false,
+  authenticateAsync: async () => ({ success: false }),
+}));
 
 import { encryptData } from "../lib/encryption";
 import {
   attachmentLimits,
   getAttachmentTransferPreflight,
+  scheduleTemporaryAttachmentCleanup,
   verifyEncryptedAttachments,
 } from "../lib/vault-attachments";
 import {
@@ -95,6 +101,12 @@ import {
   listVaultAuditEvents,
 } from "../lib/vault-audit";
 import { getTransferPassphraseStrength } from "../lib/transfer-strength";
+import {
+  configureVaultDuressPin,
+  setVaultPin,
+  verifyVaultPin,
+  wasVaultDuressTriggered,
+} from "../lib/vault-auth";
 
 describe("security service boundaries", () => {
   beforeEach(() => {
@@ -199,6 +211,19 @@ describe("security service boundaries", () => {
     });
   });
 
+  it("cleans decrypted attachment cache files after the viewing window", () => {
+    jest.useFakeTimers();
+    const directory = new MockDirectory({ path: "document" }, "cache");
+    directory.create();
+    const temporaryFile = new MockFile(directory, "temporary-readable-copy");
+    temporaryFile.create();
+    scheduleTemporaryAttachmentCleanup(temporaryFile, 1_000);
+    expect(temporaryFile.exists).toBe(true);
+    jest.advanceTimersByTime(1_000);
+    expect(temporaryFile.exists).toBe(false);
+    jest.useRealTimers();
+  });
+
   it("round-trips encrypted audit events and retains only the bounded tail", async () => {
     const key = "33".repeat(32);
     await appendVaultAuditEvent(
@@ -233,6 +258,23 @@ describe("security service boundaries", () => {
 
     clearVaultAuditEvents();
     await expect(listVaultAuditEvents(key)).resolves.toEqual([]);
+  });
+
+  it("fails closed for a configured duress PIN without consuming the trigger twice", async () => {
+    await setVaultPin("12345678");
+    await configureVaultDuressPin("87654321");
+
+    await expect(verifyVaultPin("87654321")).rejects.toThrow("Invalid PIN");
+    await expect(wasVaultDuressTriggered()).resolves.toBe(true);
+    await expect(wasVaultDuressTriggered()).resolves.toBe(false);
+    await expect(verifyVaultPin("12345678")).resolves.toBe(true);
+  });
+
+  it("does not allow the duress PIN to equal the primary PIN", async () => {
+    await setVaultPin("12345678");
+    await expect(configureVaultDuressPin("12345678")).rejects.toThrow(
+      "must differ",
+    );
   });
 
   it("classifies passphrases without accepting a short transfer secret", () => {

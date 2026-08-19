@@ -18,6 +18,24 @@ Only the `main` branch is actively supported.
 - Biometric + PIN gating
 - No plaintext secrets on disk
 
+## Runtime security enhancements
+
+### Recovery and migration
+
+Encrypted transfer import now authenticates the payload and transfer passphrase before displaying the import preview. The user must review the verified record count, attachment count, filename, and fingerprint before any database mutation occurs. Imports remain restricted to empty vaults, and attachment restoration failures trigger cleanup of partial target state.
+
+### Duress PIN
+
+The optional duress PIN is stored as a separate PBKDF2 verifier in device-only secure storage. If entered at the unlock screen, it records a one-shot local trigger, fails through the same generic invalid-PIN path, and never starts a vault session. It is non-destructive by design: it does not delete records, create a decoy vault, or claim protection against every coercion scenario. Changing or removing it requires the existing sensitive-action re-authentication gate.
+
+### Attachment lifecycle
+
+Opening an encrypted attachment creates a temporary readable cache copy only after sensitive-action re-authentication. A bounded cleanup timer removes that copy after five minutes; the encrypted attachment remains the authoritative source. The receiving Android application may retain its own copy after sharing, which is explained in the local security model.
+
+### Local transparency
+
+The Security hub exposes the bounded encrypted audit history, can expand from the latest eight events to the full retained history, reports local record and attachment health, and links to an in-app threat model explaining protection and operating-system boundaries. No event includes record names, protected values, PINs, transfer passphrases, or attachment contents.
+
 ## Build-tool dependency mitigations
 
 ### Metro `image-size` safeguard

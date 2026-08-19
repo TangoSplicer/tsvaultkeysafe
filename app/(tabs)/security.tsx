@@ -28,6 +28,7 @@ import {
   enableVaultBiometric,
   getVaultAutoLockTimeout,
   getVaultAuthState,
+  isVaultDuressPinConfigured,
   isVaultLocalRemindersEnabled,
   setVaultAutoLockTimeout,
   setVaultLocalRemindersEnabled,
@@ -77,6 +78,7 @@ export default function SecurityScreen() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [pinSet, setPinSet] = useState(false);
+  const [duressPinConfigured, setDuressPinConfigured] = useState(false);
   const [productCount, setProductCount] = useState(0);
   const [autoLock, setAutoLock] = useState(
     AUTO_LOCK_LIMITS.DEFAULT_AUTO_LOCK_MS,
@@ -89,6 +91,7 @@ export default function SecurityScreen() {
   const [snapshotStatus, setSnapshotStatus] = useState<string | null>(null);
   const [snapshotWorking, setSnapshotWorking] = useState(false);
   const [auditEvents, setAuditEvents] = useState<VaultAuditEvent[]>([]);
+  const [showAllAuditEvents, setShowAllAuditEvents] = useState(false);
   const [sensitiveAction, setSensitiveAction] = useState<
     "transfer" | "wipe" | null
   >(null);
@@ -106,14 +109,21 @@ export default function SecurityScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [state, stats, timeout, remindersEnabled, reminderCount] =
-        await Promise.all([
-          getVaultAuthState(),
-          getDatabaseStats(),
-          getVaultAutoLockTimeout(),
-          isVaultLocalRemindersEnabled(),
-          getLocalVaultReminderCount(),
-        ]);
+      const [
+        state,
+        stats,
+        timeout,
+        remindersEnabled,
+        reminderCount,
+        duressConfigured,
+      ] = await Promise.all([
+        getVaultAuthState(),
+        getDatabaseStats(),
+        getVaultAutoLockTimeout(),
+        isVaultLocalRemindersEnabled(),
+        getLocalVaultReminderCount(),
+        isVaultDuressPinConfigured(),
+      ]);
       setPinSet(state.isPinSet);
       setBiometricAvailable(state.isBiometricAvailable);
       setBiometricEnabled(state.isBiometricEnabled);
@@ -121,6 +131,7 @@ export default function SecurityScreen() {
       setAutoLock(timeout);
       setLocalRemindersEnabled(remindersEnabled);
       setScheduledReminderCount(reminderCount);
+      setDuressPinConfigured(duressConfigured);
       setSnapshots(listLocalRecoverySnapshots());
       try {
         const auditKey = await requireVaultAuditKey();
@@ -489,6 +500,30 @@ export default function SecurityScreen() {
                   Verify the current PIN before changing the unlock check.
                 </ThemedText>
               </Pressable>
+              <StatusRow
+                label="Duress PIN"
+                value={duressPinConfigured ? "Configured" : "Not configured"}
+                active={duressPinConfigured}
+                divider
+              />
+              <Pressable
+                onPress={() => router.push("/duress-pin")}
+                style={({ pressed }) => [
+                  styles.pinChangeButton,
+                  pressed && styles.pressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Configure duress PIN"
+              >
+                <ThemedText style={styles.pinChangeText}>
+                  {duressPinConfigured
+                    ? "Manage duress PIN"
+                    : "Set up duress PIN"}
+                </ThemedText>
+                <ThemedText style={styles.pinChangeHelper}>
+                  Fails closed without opening or deleting the real vault.
+                </ThemedText>
+              </Pressable>
             </Card>
           </Section>
           <Section title="Auto-lock">
@@ -655,23 +690,54 @@ export default function SecurityScreen() {
                   No security events have been recorded yet.
                 </ThemedText>
               ) : (
-                auditEvents.slice(0, 8).map((event) => (
-                  <View key={event.id} style={styles.auditRow}>
-                    <View style={styles.auditCopy}>
-                      <ThemedText style={styles.rowLabel}>
-                        {auditActionLabel(event.action)}
-                      </ThemedText>
-                      <ThemedText style={styles.helperInline}>
-                        {new Date(event.occurredAt).toLocaleString()}
-                        {event.detail ? ` · ${event.detail}` : ""}
+                auditEvents
+                  .slice(0, showAllAuditEvents ? auditEvents.length : 8)
+                  .map((event) => (
+                    <View key={event.id} style={styles.auditRow}>
+                      <View style={styles.auditCopy}>
+                        <ThemedText style={styles.rowLabel}>
+                          {auditActionLabel(event.action)}
+                        </ThemedText>
+                        <ThemedText style={styles.helperInline}>
+                          {new Date(event.occurredAt).toLocaleString()}
+                          {event.detail ? ` · ${event.detail}` : ""}
+                        </ThemedText>
+                      </View>
+                      <ThemedText style={styles.auditOutcome}>
+                        {event.outcome}
                       </ThemedText>
                     </View>
-                    <ThemedText style={styles.auditOutcome}>
-                      {event.outcome}
-                    </ThemedText>
-                  </View>
-                ))
+                  ))
               )}
+              {auditEvents.length > 8 && (
+                <Pressable
+                  onPress={() => setShowAllAuditEvents((value) => !value)}
+                  style={styles.auditExpandButton}
+                >
+                  <ThemedText style={styles.pinChangeText}>
+                    {showAllAuditEvents
+                      ? "Show latest 8"
+                      : `Show all ${auditEvents.length} events`}
+                  </ThemedText>
+                </Pressable>
+              )}
+            </Card>
+          </Section>
+          <Section title="Security model">
+            <Card>
+              <ThemedText style={styles.helper}>
+                Review what the offline vault protects, what remains an
+                operating-system responsibility, and how recovery, sharing,
+                clipboard, and duress behavior work.
+              </ThemedText>
+              <Pressable
+                onPress={() => router.push("/threat-model")}
+                style={styles.transferButton}
+              >
+                <ThemedText style={styles.transferButtonText}>
+                  Read security model
+                </ThemedText>
+              </Pressable>
             </Card>
           </Section>
           <Section title="Vault management">
@@ -961,6 +1027,13 @@ const styles = StyleSheet.create({
     borderTopColor: "#E2E8F0",
   },
   auditCopy: { flex: 1 },
+  auditExpandButton: {
+    marginTop: 12,
+    alignItems: "center",
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
+  },
   auditOutcome: {
     fontSize: 11,
     fontWeight: "900",

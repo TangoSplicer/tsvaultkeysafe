@@ -28,6 +28,7 @@ import {
   MIN_TRANSFER_PASSPHRASE_LENGTH,
   RecoveryGuideDetails,
   selectAndImportVaultTransfer,
+  VaultTransferPreview,
   VaultTransferPreflight,
   shareRecoveryGuide,
   validateTransferPassphrase,
@@ -185,6 +186,32 @@ export default function TransferScreen() {
         key,
         attachmentKey,
         importPassphrase,
+        async ({ fileName, summary }: VaultTransferPreview) =>
+          new Promise((resolve) => {
+            const records =
+              summary.recordCount === null
+                ? "legacy/unknown"
+                : summary.recordCount;
+            const attachments =
+              summary.attachmentCount === null
+                ? "legacy/unknown"
+                : summary.attachmentCount;
+            const fingerprint = summary.fingerprint
+              ? `\nFingerprint: ${summary.fingerprint}`
+              : "";
+            Alert.alert(
+              "Review secure import",
+              `${fileName}\n\nRecords: ${records}\nAttachments: ${attachments}${fingerprint}\n\nThe encrypted payload and transfer passphrase have been checked. Import into this empty vault now?`,
+              [
+                {
+                  text: "Cancel",
+                  style: "cancel",
+                  onPress: () => resolve(false),
+                },
+                { text: "Import securely", onPress: () => resolve(true) },
+              ],
+            );
+          }),
       );
       if (!result) {
         setStatus("Import cancelled");

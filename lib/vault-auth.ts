@@ -9,6 +9,8 @@ const VAULT_AUTO_LOCK_TIMEOUT_KEY = "tsvault.auto-lock-timeout.v2";
 const VAULT_FAILED_ATTEMPTS_KEY = "tsvault.failed-attempts.v2";
 const VAULT_LOCKOUT_TIME_KEY = "tsvault.lockout-until.v2";
 const VAULT_LOCAL_REMINDERS_ENABLED_KEY = "tsvault.local-reminders-enabled.v1";
+const VAULT_DURESS_PIN_HASH_KEY = "tsvault.duress-pin-verifier.v1";
+const VAULT_DURESS_TRIGGERED_KEY = "tsvault.duress-triggered.v1";
 const KEYCHAIN_SERVICE = "com.tsvaultkeysafe.authentication";
 const DEFAULT_AUTO_LOCK_MS = 60_000;
 const MIN_AUTO_LOCK_MS = 15_000;
@@ -67,6 +69,18 @@ export async function setVaultPin(pin: string): Promise<void> {
 export async function verifyVaultPin(pin: string): Promise<boolean> {
   if (await checkVaultLockout()) {
     throw new Error("Too many failed attempts. Try again later.");
+  }
+
+  const duressHash = await SecureStore.getItemAsync(
+    VAULT_DURESS_PIN_HASH_KEY,
+    options(),
+  );
+  if (duressHash && (await verifyPin(pin, duressHash))) {
+    await Promise.all([
+      SecureStore.setItemAsync(VAULT_DURESS_TRIGGERED_KEY, "true", options()),
+      clearVaultFailedAttempts(),
+    ]);
+    throw new Error("Invalid PIN");
   }
 
   const pinHash = await SecureStore.getItemAsync(VAULT_PIN_HASH_KEY, options());
@@ -130,6 +144,43 @@ export async function authenticateVaultWithBiometric(): Promise<boolean> {
   await clearVaultFailedAttempts();
   await recordVaultLastUnlock();
   return true;
+}
+
+export async function isVaultDuressPinConfigured(): Promise<boolean> {
+  return Boolean(
+    await SecureStore.getItemAsync(VAULT_DURESS_PIN_HASH_KEY, options()),
+  );
+}
+
+export async function configureVaultDuressPin(pin: string): Promise<void> {
+  const normalPin = await SecureStore.getItemAsync(
+    VAULT_PIN_HASH_KEY,
+    options(),
+  );
+  if (!normalPin) throw new Error("Set the primary vault PIN first");
+  if (await verifyPin(pin, normalPin)) {
+    throw new Error("The duress PIN must differ from the primary PIN");
+  }
+  const pinHash = await hashPin(pin);
+  await SecureStore.setItemAsync(VAULT_DURESS_PIN_HASH_KEY, pinHash, options());
+  await SecureStore.deleteItemAsync(VAULT_DURESS_TRIGGERED_KEY, options());
+}
+
+export async function clearVaultDuressPin(): Promise<void> {
+  await Promise.all([
+    SecureStore.deleteItemAsync(VAULT_DURESS_PIN_HASH_KEY, options()),
+    SecureStore.deleteItemAsync(VAULT_DURESS_TRIGGERED_KEY, options()),
+  ]);
+}
+
+export async function wasVaultDuressTriggered(): Promise<boolean> {
+  const triggered =
+    (await SecureStore.getItemAsync(VAULT_DURESS_TRIGGERED_KEY, options())) ===
+    "true";
+  if (triggered) {
+    await SecureStore.deleteItemAsync(VAULT_DURESS_TRIGGERED_KEY, options());
+  }
+  return triggered;
 }
 
 export async function isVaultPinSet(): Promise<boolean> {
@@ -277,6 +328,8 @@ export async function clearVaultAuthData(): Promise<void> {
     SecureStore.deleteItemAsync(VAULT_LOCAL_REMINDERS_ENABLED_KEY, options()),
     SecureStore.deleteItemAsync(VAULT_FAILED_ATTEMPTS_KEY, options()),
     SecureStore.deleteItemAsync(VAULT_LOCKOUT_TIME_KEY, options()),
+    SecureStore.deleteItemAsync(VAULT_DURESS_PIN_HASH_KEY, options()),
+    SecureStore.deleteItemAsync(VAULT_DURESS_TRIGGERED_KEY, options()),
   ]);
 }
 

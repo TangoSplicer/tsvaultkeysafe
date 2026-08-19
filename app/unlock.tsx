@@ -23,8 +23,9 @@ import {
   isVaultBiometricEnabled,
   isVaultPinSet,
   verifyVaultPin,
+  wasVaultDuressTriggered,
 } from "@/lib/vault-auth";
-import { beginVaultSession } from "@/lib/vault-session";
+import { beginVaultSession, endVaultSession } from "@/lib/vault-session";
 
 function yieldToUi(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -196,6 +197,14 @@ export default function UnlockScreen() {
       pinVerified = true;
       await completeUnlock();
     } catch {
+      const duressTriggered = await wasVaultDuressTriggered().catch(
+        () => false,
+      );
+      if (duressTriggered) {
+        endVaultSession();
+        setVerificationMessage("PIN verification did not complete");
+        return;
+      }
       if (pinVerified) {
         Alert.alert(
           "Vault opening needs attention",
