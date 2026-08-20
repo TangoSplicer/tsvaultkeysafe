@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "TSVaultKeySafe",
   slug: "tsvaultkeysafe",
-  version: "1.10.1",
+  version: "1.11.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "tsvaultkeysafe",
@@ -14,7 +14,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.tangosplicer.tsvaultkeysafe",
-    versionCode: 16,
+    versionCode: 17,
     adaptiveIcon: {
       backgroundColor: "#0F172A",
       foregroundImage: "./assets/images/android-icon-foreground.png",

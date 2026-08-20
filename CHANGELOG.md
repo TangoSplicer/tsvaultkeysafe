@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.11.0] — 2026-08-20
+
+### Added
+
+- **Isolated decoy vault:** The duress PIN now opens a separately encrypted, read-only decoy vault with generic fallback records instead of using the previous fail-closed response.
+- **Session-mode enforcement:** Real-vault key access, real-vault tab navigation, transfer functions, attachments, audit history, and security settings are unavailable during decoy sessions.
+- **Decoy lifecycle controls:** Decoy keys are cleared when the app backgrounds or the session ends. Replacing, removing, or clearing vault authentication wipes the decoy store so it cannot remain under stale key material.
+- **Security coverage:** Added tests for decoy storage separation, real-vault key rejection, one-shot trigger behavior, and decoy rotation on duress-PIN changes.
+
+### Changed
+
+- **Release metadata:** Updated the app to version 1.11.0 and Android versionCode 17.
+- **Threat-model documentation:** Documented decoy-vault behavior and its limitations against compromised operating systems, forensic analysis, reverse engineering, and coercion scenarios.
+
+### Security note
+
+- The decoy vault is a local concealment aid, not a guarantee of safety. It does not protect against a compromised operating system, a modified APK, memory or forensic acquisition, or every coercion scenario. The application remains strictly offline with no account, cloud, analytics, synchronization, or remote recovery service.
+
+---
+
 ## [1.10.1] — 2026-08-20
 
 ### Fixed

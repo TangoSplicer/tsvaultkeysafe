@@ -1,6 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
 import { hashPin, verifyPin } from "./encryption";
+import { wipeDecoyVault } from "./decoy-vault";
 
 const VAULT_PIN_HASH_KEY = "tsvault.pin-verifier.v2";
 const VAULT_BIOMETRIC_ENABLED_KEY = "tsvault.biometric-enabled.v2";
@@ -162,11 +163,13 @@ export async function configureVaultDuressPin(pin: string): Promise<void> {
     throw new Error("The duress PIN must differ from the primary PIN");
   }
   const pinHash = await hashPin(pin);
+  await wipeDecoyVault();
   await SecureStore.setItemAsync(VAULT_DURESS_PIN_HASH_KEY, pinHash, options());
   await SecureStore.deleteItemAsync(VAULT_DURESS_TRIGGERED_KEY, options());
 }
 
 export async function clearVaultDuressPin(): Promise<void> {
+  await wipeDecoyVault();
   await Promise.all([
     SecureStore.deleteItemAsync(VAULT_DURESS_PIN_HASH_KEY, options()),
     SecureStore.deleteItemAsync(VAULT_DURESS_TRIGGERED_KEY, options()),
@@ -320,6 +323,7 @@ export async function changeVaultPin(
 }
 
 export async function clearVaultAuthData(): Promise<void> {
+  await wipeDecoyVault();
   await Promise.all([
     SecureStore.deleteItemAsync(VAULT_PIN_HASH_KEY, options()),
     SecureStore.deleteItemAsync(VAULT_BIOMETRIC_ENABLED_KEY, options()),

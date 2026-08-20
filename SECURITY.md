@@ -12,7 +12,7 @@ Only the `main` branch is actively supported.
 
 ## Protections
 
-- AES-256-GCM encryption
+- XChaCha20-Poly1305 authenticated encryption
 - PBKDF2 key derivation
 - Keys stored in platform keystore
 - Biometric + PIN gating
@@ -24,9 +24,13 @@ Only the `main` branch is actively supported.
 
 Encrypted transfer import now authenticates the payload and transfer passphrase before displaying the import preview. The user must review the verified record count, attachment count, filename, and fingerprint before any database mutation occurs. Imports remain restricted to empty vaults, and attachment restoration failures trigger cleanup of partial target state.
 
-### Duress PIN
+### Duress PIN and decoy vault
 
-The optional duress PIN is stored as a separate PBKDF2 verifier in device-only secure storage. If entered at the unlock screen, it records a one-shot local trigger, fails through the same generic invalid-PIN path, and never starts a vault session. It is non-destructive by design: it does not delete records, create a decoy vault, or claim protection against every coercion scenario. Changing or removing it requires the existing sensitive-action re-authentication gate.
+The optional duress PIN is stored as a separate PBKDF2 verifier in device-only secure storage. If entered at the unlock screen, it records a one-shot local trigger and opens a separate decoy session rather than deriving or opening the real vault key.
+
+The decoy vault is stored in its own encrypted file with independent PBKDF2-derived key material, separate associated data, and generic seeded records. The real SQLite database, device-bound master key, attachments, recovery snapshots, audit history, transfer functions, and security settings are not used by the decoy screen. The real-vault key service explicitly rejects every non-real session, and the tab shell redirects accidental real-screen navigation back to the decoy screen.
+
+The decoy screen is read-only and has only a lock action. It does not provide transfer, security-settings, attachment, or permanent-wipe controls. Backgrounding the app clears the in-memory decoy key and ends the session. This is a local concealment aid, not a guarantee against a compromised operating system, forensic analysis, reverse engineering, or every coercion scenario. Changing or removing the duress PIN requires the existing sensitive-action re-authentication gate.
 
 ### Attachment lifecycle
 

@@ -64,6 +64,11 @@ jest.mock("expo-file-system", () => ({
   File: MockFile,
   Paths: { document: { path: "document" } },
 }));
+jest.mock("expo-file-system/next", () => ({
+  Directory: MockDirectory,
+  File: MockFile,
+  Paths: { document: { path: "document" } },
+}));
 
 jest.mock("expo-document-picker", () => ({}));
 const secureStore = new Map<string, string>();
@@ -88,6 +93,7 @@ jest.mock("expo-local-authentication", () => ({
 }));
 
 import { encryptData } from "../lib/encryption";
+import { clearActiveDecoyKey, openDecoyVault } from "../lib/decoy-vault";
 import {
   attachmentLimits,
   getAttachmentTransferPreflight,
@@ -101,7 +107,10 @@ import {
   listVaultAuditEvents,
 } from "../lib/vault-audit";
 import { getTransferPassphraseStrength } from "../lib/transfer-strength";
+import { requireVaultDatabaseKey } from "../lib/vault-service";
+import { beginVaultSession, endVaultSession } from "../lib/vault-session";
 import {
+  clearVaultDuressPin,
   configureVaultDuressPin,
   setVaultPin,
   verifyVaultPin,
@@ -113,6 +122,8 @@ describe("security service boundaries", () => {
     files.clear();
     directories.clear();
     secureStore.clear();
+    clearActiveDecoyKey();
+    endVaultSession();
   });
 
   it("keeps attachment limits bounded", () => {
@@ -275,6 +286,35 @@ describe("security service boundaries", () => {
     await expect(configureVaultDuressPin("12345678")).rejects.toThrow(
       "must differ",
     );
+  });
+
+  it("rotates decoy storage when the duress PIN is replaced or removed", async () => {
+    await setVaultPin("12345678");
+    await configureVaultDuressPin("87654321");
+    await openDecoyVault("87654321");
+    expect(files.has("document/tsvault-decoy-vault.v1")).toBe(true);
+
+    await configureVaultDuressPin("13572468");
+    expect(files.has("document/tsvault-decoy-vault.v1")).toBe(false);
+
+    await openDecoyVault("13572468");
+    expect(files.has("document/tsvault-decoy-vault.v1")).toBe(true);
+    await clearVaultDuressPin();
+    expect(files.has("document/tsvault-decoy-vault.v1")).toBe(false);
+  });
+
+  it("keeps decoy storage separate from the real vault key boundary", async () => {
+    const products = await openDecoyVault("87654321");
+    beginVaultSession("decoy");
+
+    expect(products).toHaveLength(2);
+    expect(files.has("document/tsvault-decoy-vault.v1")).toBe(true);
+    await expect(requireVaultDatabaseKey()).rejects.toThrow(
+      "Real vault session is unavailable",
+    );
+
+    clearActiveDecoyKey();
+    endVaultSession();
   });
 
   it("classifies passphrases without accepting a short transfer secret", () => {

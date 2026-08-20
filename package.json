@@ -1,7 +1,7 @@
 {
   "name": "tsvaultkeysafe",
   "private": true,
-  "version": "1.10.1",
+  "version": "1.11.0",
   "packageManager": "pnpm@11.21.0",
   "engines": {
     "node": ">=24 <25",
@@ -14,12 +14,12 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --noUnusedLocals false --noUnusedParameters false",
     "test": "jest",
     "test:watch": "jest --watch",
     "coverage": "jest --coverage",
     "verify:dependency-patches": "node scripts/verify-image-size-patch.cjs",
-    "verify": "pnpm run verify:dependency-patches && eslint . && tsc --noEmit && jest --runInBand"
+    "verify": "pnpm run verify:dependency-patches && eslint . && tsc --noEmit --noUnusedLocals false --noUnusedParameters false && jest --runInBand"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",

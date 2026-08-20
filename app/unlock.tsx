@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { initializeDatabase } from "@/lib/database";
+import { openDecoyVault } from "@/lib/decoy-vault";
 import { initializeEncryption } from "@/lib/encryption";
 import {
   authenticateVaultWithBiometric,
@@ -202,21 +203,22 @@ export default function UnlockScreen() {
       );
       if (duressTriggered) {
         endVaultSession();
-        setVerificationMessage(
-          "No vault session opened — ready for another PIN",
-        );
+        setVerificationMessage("Opening protected fallback vault");
         try {
-          await Haptics.notificationAsync(
-            Haptics.NotificationFeedbackType.Error,
-          );
+          await openDecoyVault(candidate);
+          beginVaultSession("decoy");
+          router.replace("/decoy");
         } catch {
-          // Haptic feedback is optional.
+          endVaultSession();
+          setVerificationMessage(
+            "No vault session opened — ready for another PIN",
+          );
+          Alert.alert(
+            "Unable to unlock",
+            "The protected fallback vault could not be opened. No real vault session was started.",
+            [{ text: "OK" }],
+          );
         }
-        Alert.alert(
-          "Unable to unlock",
-          "No vault session was opened. You can try again.",
-          [{ text: "OK" }],
-        );
         return;
       }
       if (pinVerified) {

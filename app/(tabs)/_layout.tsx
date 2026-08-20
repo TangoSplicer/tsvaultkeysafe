@@ -10,7 +10,11 @@ import {
   disableVaultScreenProtection,
   enableVaultScreenProtection,
 } from "@/lib/privacy";
-import { endVaultSession, isVaultSessionUnlocked } from "@/lib/vault-session";
+import {
+  endVaultSession,
+  getVaultSessionMode,
+  isVaultSessionUnlocked,
+} from "@/lib/vault-session";
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -24,6 +28,11 @@ export default function TabLayout() {
       router.replace("/unlock");
     };
     const secureActiveSession = async () => {
+      const mode = getVaultSessionMode();
+      if (mode === "decoy") {
+        router.replace("/decoy");
+        return;
+      }
       if (!isVaultSessionUnlocked()) {
         router.replace("/unlock");
         return;

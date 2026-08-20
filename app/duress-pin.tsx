@@ -53,7 +53,7 @@ export default function DuressPinScreen() {
       setConfirmation("");
       Alert.alert(
         "Duress PIN enabled",
-        "If entered at the unlock screen, this PIN will deliberately fail closed and will not open the real vault. The app will not destroy data or reveal that a duress response occurred.",
+        "If entered at the unlock screen, this PIN opens a separate encrypted decoy vault. The real vault key, records, attachments, transfers, and security settings remain inaccessible.",
       );
     } catch (error) {
       Alert.alert(
@@ -98,17 +98,18 @@ export default function DuressPinScreen() {
       >
         <ThemedText type="title">Duress PIN</ThemedText>
         <ThemedText style={styles.subtitle}>
-          A separate, device-only PIN that fails closed without opening the real
-          vault. It is non-destructive by default.
+          A separate, device-only PIN that opens an isolated encrypted decoy
+          vault without opening the real vault.
         </ThemedText>
         <View style={styles.warning}>
           <ThemedText style={styles.warningTitle}>
             Important boundary
           </ThemedText>
           <ThemedText style={styles.copy}>
-            This feature does not create a decoy vault and never deletes data.
-            It prevents a vault session from starting, while presenting the same
-            generic failed-verification path as an incorrect PIN.
+            The decoy vault uses a separate encrypted file and an independent
+            key derived from this PIN. It contains only generic fallback
+            records. It cannot read the real database or attachments, and it has
+            no transfer, security-settings, or permanent-wipe controls.
           </ThemedText>
         </View>
         <ThemedText style={styles.label}>New duress PIN</ThemedText>
@@ -163,7 +164,7 @@ export default function DuressPinScreen() {
       <SensitiveActionGate
         visible={authGateVisible}
         title="Verify duress-PIN change"
-        description="Re-authenticate before changing or removing this panic response."
+        description="Re-authenticate before changing or removing the decoy-vault PIN."
         onCancel={() => {
           setPendingAction(null);
           setAuthGateVisible(false);

@@ -1,9 +1,9 @@
 import { deriveKeys, EncryptionKeys, getMasterKey } from "./encryption";
-import { isVaultSessionUnlocked } from "./vault-session";
+import { isRealVaultSession } from "./vault-session";
 
 export async function requireVaultKeys(): Promise<EncryptionKeys> {
-  if (!isVaultSessionUnlocked()) {
-    throw new Error("Vault session is locked");
+  if (!isRealVaultSession()) {
+    throw new Error("Real vault session is unavailable");
   }
   const masterKey = await getMasterKey();
   if (!masterKey) {

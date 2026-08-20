@@ -24,8 +24,8 @@ const sections = [
     body: "TSVaultKeySafe has no account, cloud recovery, synchronization service, or remote administrator. Keep encrypted transfer files and their passphrases separate, verify the import fingerprint, and delete temporary copies after migration.",
   },
   {
-    title: "Duress PIN",
-    body: "The optional duress PIN fails closed without opening or deleting the real vault. It is deliberately non-destructive; it is not a decoy vault and does not guarantee safety in every coercion scenario.",
+    title: "Duress PIN and decoy vault",
+    body: "The optional duress PIN opens a separate encrypted decoy vault containing only generic fallback records. The real database, device-bound master key, attachments, transfers, audit history, and security settings remain inaccessible. This is a local concealment aid, not a guarantee of safety against a compromised operating system, forensic analysis, or every coercion scenario.",
   },
   {
     title: "Local audit evidence",
