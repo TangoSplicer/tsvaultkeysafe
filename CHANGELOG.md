@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.10.1] — 2026-08-20
+
+### Fixed
+
+- **Duress-PIN unlock completion:** A configured duress PIN now closes any vault session, clears the entered PIN, stops the verification state, and returns to a neutral retry-ready unlock screen with explicit feedback. It never starts the real vault session or opens records.
+
+### Changed
+
+- **Release metadata:** Updated the app to version 1.10.1 while retaining Android versionCode 16.
+
+---
+
 ## [1.10.0] — 2026-08-19
 
 ### Added

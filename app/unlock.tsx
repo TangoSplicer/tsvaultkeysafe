@@ -202,7 +202,21 @@ export default function UnlockScreen() {
       );
       if (duressTriggered) {
         endVaultSession();
-        setVerificationMessage("PIN verification did not complete");
+        setVerificationMessage(
+          "No vault session opened — ready for another PIN",
+        );
+        try {
+          await Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Error,
+          );
+        } catch {
+          // Haptic feedback is optional.
+        }
+        Alert.alert(
+          "Unable to unlock",
+          "No vault session was opened. You can try again.",
+          [{ text: "OK" }],
+        );
         return;
       }
       if (pinVerified) {

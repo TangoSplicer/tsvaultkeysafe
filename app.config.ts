@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "TSVaultKeySafe",
   slug: "tsvaultkeysafe",
-  version: "1.10.0",
+  version: "1.10.1",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "tsvaultkeysafe",
